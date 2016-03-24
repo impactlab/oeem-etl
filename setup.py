@@ -21,4 +21,4 @@ setup(
     scripts=['bin/oeem-upload'],
     install_requires=['eemeter'],
     keywords='open energy efficiency meter etl espi greenbutton',
-    )
+)
