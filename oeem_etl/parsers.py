@@ -120,14 +120,4 @@ def hpxml_to_project(project_id, hpxml):
 
     return out
 
-
-def client_project_keys(s3_bucket, client_path):
-    '''
-    Return key objects in s3 bucket that are stored
-    under given path, associated with a particular client.
-    '''
-    for k in s3_bucket:  # boto bucket object.
-        if client_path in str(k.key):
-            yield k
-
 project_parser = {'hpxml': hpxml_to_project}
