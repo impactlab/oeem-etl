@@ -1,20 +1,33 @@
 import luigi
+from luigi.s3 import S3Target, S3Client
+from luigi.format import MixedUnicodeBytesFormat
 
-class ParseS3toS3(luigi.Task):
+from .fetch import FetchToS3
+
+class ParseS3ToS3(luigi.Task):
+    s3_key_fetched = luigi.Parameter()
+    s3_key_parsed = luigi.Parameter()
+    parser_callable = luigi.Parameter()
+    fetcher_callable = luigi.Parameter()
     aws_access_key_id = luigi.Parameter()
     aws_secret_access_key = luigi.Parameter()
-    s3_key_input = luigi.Parameter()
-    s3_key_output = luigi.Parameter()
-    parser_callable = luigi.Parameter()
 
-    def input(self):
-        return luigi.s3.S3Target(self.s3_key_input, self._s3_client())
+    def requires(self):
+        return FetchToS3(
+            self.s3_key_fetched,
+            self.fetcher_callable,
+            self.aws_access_key_id,
+            self.aws_secret_access_key
+        )
 
     def run(self):
-        input_file = self.input()
+        input_file = self.input().open('r')
+        with self.output().open('w') as f:
+            f.write(self.parser_callable(input_file))
 
     def output(self):
-        return luigi.s3.S3Target(self.s3_key_output, self._s3_client())
+        return S3Target(self.s3_key_parsed, format=MixedUnicodeBytesFormat(), client=self._s3_client())
 
     def _s3_client(self):
-        return luigi.s3.S3Client(self.aws_access_key_id, self.aws_secret_access_key)
+        return S3Client(self.aws_access_key_id, self.aws_secret_access_key)
+
