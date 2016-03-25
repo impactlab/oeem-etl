@@ -4,21 +4,17 @@ long_description = '''Utilities to facilitate data ETL for OEEM Datastore. Inclu
                    components to fetch energy usage and retrofit project data,
                    connect projects to usage records, and upload them to the
                    datastore.'''
-
-setup(
-    name='oeem-etl',
-    version='0.1dev',
-    description='Open Energy Efficiency Meter ETL utils',
-    long_description=long_description,
-    url='https://github.com/impactlab/oeem-etl/',
-    author='Juan-Pablo Velez, Phil Ngo',
-    license='MIT',
-    classifiers=[
-        'Development Status :: 3 - Alpha',
-        'License :: OSI Approved :: MIT License',
-        'Programming Language :: Python :: 3',
-    ],
-    scripts=['bin/oeem-upload'],
-    install_requires=['eemeter'],
-    keywords='open energy efficiency meter etl espi greenbutton',
-)
+setup(name='oeem_etl',
+      version='0.1dev',
+      description='Open Energy Efficiency Meter ETL utils',
+      long_description=long_description,
+      url='https://github.com/impactlab/oeem-etl/',
+      author='Juan-Pablo Velez, Phil Ngo',
+      license='MIT',
+      classifiers=[
+           'Development Status :: 3 - Alpha',
+           'License :: OSI Approved :: MIT License',
+           'Programming Language :: Python :: 3',
+       ],
+      keywords='open energy efficiency meter etl espi greenbutton',
+    )
