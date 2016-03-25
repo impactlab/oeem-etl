@@ -15,7 +15,7 @@ from eemeter import parsers
 from .parsers import project_parser, parse_usage_data, \
                              parse_account_data
 from .reconcilers import link_projects_to_consumption
-import uploader
+from .uploader import upload_dicts, upload_dataframes
 
 
 def path_to_filename(path):
@@ -25,6 +25,7 @@ def path_to_filename(path):
     '''
     return os.path.basename(os.path.splitext(path)[0])
 
+# TODO: fix unorderable types bug
 # TODO: use s3 targets instead of local ones.
 # TODO: rationalize s3 filename paths for the entire pipeline.
 # TODO: go through oeem_etl functions, rename and find a final location for them. (especially reconcilers)
@@ -220,7 +221,7 @@ class ConnectProjectsToConsumption(luigi.Task):
 
 # TODO: refactor this task to not be insane.
 class UploadDatasets(luigi.Task):
-    config = luigi.parameter()
+    config = luigi.Parameter()
 
     def requires(self):
         return ConnectProjectsToConsumption(self.config)
@@ -259,7 +260,7 @@ class UploadDatasets(luigi.Task):
         datasets = json.loads(self.input().open('r').read())
         all_readings = self.convert_datetime(datasets['consumption'])
         just_projects = [p['project'] for p in datasets['projects']]
-        # uploader.upload_dicts(just_projects, all_readings,
+        # upload_dicts(just_projects, all_readings,
         #                       DATASTORE_URL, DATASTORE_TOKEN, PROJECT_OWNER,
         #                       verbose=True)
         # Use upload dataframes until upload_dicts is working.
@@ -269,7 +270,8 @@ class UploadDatasets(luigi.Task):
         consumption_df = pd.DataFrame(all_readings)
         project_df['baseline_period_end'] = pd.to_datetime(project_df.baseline_period_end)
         project_df['reporting_period_start'] = pd.to_datetime(project_df.reporting_period_start)
-        uploader.upload_dataframes(project_df, consumption_df.head(10000),
+        # TODO: TRY UPLOAD DATAFRAMES2
+        upload_dataframes(project_df, consumption_df.head(10000),
                                    self.config['DATASTORE_URL'],
                                    self.config['DATASTORE_TOKEN'],
                                    self.config['PROJECT_OWNER'],
