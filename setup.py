@@ -4,7 +4,6 @@ long_description = '''Utilities to facilitate data ETL for OEEM Datastore. Inclu
                    components to fetch energy usage and retrofit project data,
                    connect projects to usage records, and upload them to the
                    datastore.'''
-
 setup(name='oeem_etl',
       version='0.1dev',
       description='Open Energy Efficiency Meter ETL utils',

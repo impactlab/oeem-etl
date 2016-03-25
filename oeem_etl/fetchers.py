@@ -140,15 +140,3 @@ class ESPIAPI():
         account_url = self.api_url + endpoint + subscription_id
         return requests.get(account_url, headers=self.make_headers(access_token),
                             cert=self.cert).text
-
-# Initialize Green Button API fetcher.
-cred = yaml.load(open('cred.ini', 'r').read())
-AUTH_API_URL = cred['oauth_service_url']
-AUTH_API_TOKEN = cred['oauth_service_token']
-green_button = GreenButtonAPI(AUTH_API_URL, AUTH_API_TOKEN)
-
-# Initialize ESPI API fetcher.
-ESPI_API_URL = cred['espi_api_url']
-CERT_FILE = cred['cert_file']
-PRIVKEY_FILE = cred['privkey_file']
-espi = ESPIAPI(ESPI_API_URL, cert=(CERT_FILE, PRIVKEY_FILE))
