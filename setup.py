@@ -5,7 +5,7 @@ long_description = '''Utilities to facilitate data ETL for OEEM Datastore. Inclu
                    connect projects to usage records, and upload them to the
                    datastore.'''
 
-setup(name='oeem-etl',
+setup(name='oeem_etl',
       version='0.1dev',
       description='Open Energy Efficiency Meter ETL utils',
       long_description=long_description,
