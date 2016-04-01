@@ -1,7 +1,11 @@
 PROJECT_ATTRIBUTE_KEY_URL = 'project_attribute_keys/'
+PROJECT_ATTRIBUTE_KEY_SYNC_URL = 'project_attribute_keys/sync/'
 PROJECT_URL = 'projects/'
+PROJECT_SYNC_URL = 'projects/sync/'
 PROJECT_ATTRIBUTE_URL = 'project_attributes/'
+PROJECT_ATTRIBUTE_SYNC_URL = 'project_attributes/sync/'
 CONSUMPTION_METADATA_URL = 'consumption_metadatas/'
+CONSUMPTION_METADATA_SYNC_URL = 'consumption_metadatas/sync/'
 CONSUMPTION_RECORD_URL = 'consumption_records/'
 CONSUMPTION_RECORD_SYNC_URL = 'consumption_records/sync/'
 

@@ -18,6 +18,9 @@ setup(
         'Programming Language :: Python :: 3',
     ],
     scripts=['bin/oeem-upload'],
-    install_requires=['eemeter'],
+    install_requires=[
+        'eemeter',
+        'luigi'
+    ],
     keywords='open energy efficiency meter etl espi greenbutton',
 )
