@@ -131,7 +131,7 @@ def upload_consumption_csv(consumption_csv_file, url, access_token):
     consumption_df.end = pd.to_datetime(consumption_df.end)
     return upload_consumption_dataframe(consumption_df, url, access_token)
 
-def upload_project_dataframe(project_df, url, access_token, project_owner, verbose=True):
+def upload_project_dataframe(project_df, url, access_token, project_owner):
     """Uploads project data in pandas DataFrame format to a datastore instance.
 
     Parameters
@@ -177,7 +177,7 @@ def upload_project_dataframe(project_df, url, access_token, project_owner, verbo
         "project_attributes": project_attribute_responses,
     }
 
-def upload_consumption_dataframe(consumption_df, url, access_token, verbose=True):
+def upload_consumption_dataframe(consumption_df, url, access_token):
     """Uploads consumption data in pandas DataFrame format to a datastore instance.
 
     Parameters
@@ -303,15 +303,27 @@ def _get_project_data(project_df, project_attribute_keys_data):
     for i, row in project_df.iterrows():
         project_data = {
             "project_id": row.project_id,
-            "zipcode": row.zipcode,
-            "weather_station": row.weather_station,
-            "latitude": row.latitude,
-            "longitude": row.longitude,
+            "zipcode": str(row.zipcode) if pd.notnull(row.zipcode) else None,
+            "weather_station": str(row.weather_station) if pd.notnull(row.weather_station) else None,
+            "latitude": row.latitude if pd.notnull(row.latitude) else None,
+            "longitude": row.longitude if pd.notnull(row.longitude) else None,
             "baseline_period_start": None,
-            "baseline_period_end": pytz.UTC.localize(row.baseline_period_end).strftime("%Y-%m-%dT%H:%M:%S%z"),
-            "reporting_period_start": pytz.UTC.localize(row.reporting_period_start).strftime("%Y-%m-%dT%H:%M:%S%z"),
             "reporting_period_end": None,
         }
+
+        assert pd.notnull(project_data["project_id"])
+
+        baseline_period_end_localized = pytz.UTC.localize(row.baseline_period_end)
+        if pd.isnull(baseline_period_end_localized):
+            project_data["baseline_period_end"] = None
+        else:
+            project_data["baseline_period_end"] = baseline_period_end_localized.strftime("%Y-%m-%dT%H:%M:%S%z")
+
+        reporting_period_start_localized = pytz.UTC.localize(row.reporting_period_start)
+        if pd.isnull(reporting_period_start_localized):
+            project_data["reporting_period_start"] = None
+        else:
+            project_data["reporting_period_start"] = reporting_period_start_localized.strftime("%Y-%m-%dT%H:%M:%S%z")
 
         project_attributes_data = []
         for project_attribute_key_data in project_attribute_keys_data:
