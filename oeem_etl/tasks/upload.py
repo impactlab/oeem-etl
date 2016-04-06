@@ -79,5 +79,3 @@ class UploadDatasets(luigi.Task):
 
         project_results = upload_project_dataframe(project_df, url, access_token, project_owner)
         consumption_results = upload_consumption_dataframe(consumption_df, url, access_token)
-
-        import pdb; pdb.set_trace()

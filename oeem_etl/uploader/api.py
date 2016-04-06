@@ -163,13 +163,13 @@ def upload_project_dataframe(project_df, url, access_token, project_owner):
         project_attribute_records.extend(project_attributes_data)
 
     project_attribute_key_responses = _bulk_sync(requester, project_attribute_key_records,
-            constants.PROJECT_ATTRIBUTE_KEY_SYNC_URL, 100)
+            constants.PROJECT_ATTRIBUTE_KEY_SYNC_URL, 2000)
 
     project_responses = _bulk_sync(requester, project_records,
-            constants.PROJECT_SYNC_URL, 100)
+            constants.PROJECT_SYNC_URL, 1000)
 
     project_attribute_responses = _bulk_sync(requester, project_attribute_records,
-            constants.PROJECT_ATTRIBUTE_SYNC_URL, 100)
+            constants.PROJECT_ATTRIBUTE_SYNC_URL, 2000)
 
     return {
         "projects": project_responses,
@@ -202,10 +202,10 @@ def upload_consumption_dataframe(consumption_df, url, access_token):
         consumption_record_records.extend(consumption_records_data)
 
     consumption_metadata_responses = _bulk_sync(requester, consumption_metadata_records,
-            constants.CONSUMPTION_METADATA_SYNC_URL, 100)
+            constants.CONSUMPTION_METADATA_SYNC_URL, 2000)
 
     consumption_record_responses = _bulk_sync(requester, consumption_record_records,
-            constants.CONSUMPTION_RECORD_SYNC_URL, 1000)
+            constants.CONSUMPTION_RECORD_SYNC_URL, 3000)
 
     return {
         "consumption_metadatas": consumption_metadata_responses,
@@ -218,10 +218,24 @@ def _bulk_sync(requester, records, url, n):
     groups of n and collecting responses.
     """
     responses = []
-    for i in range(0, len(records), n):
+    n_records = len(records)
+    for i in range(0, n_records, n):
         batch = records[i:i+n]
         response = requester.post(url, batch)
-        responses.extend(response.json())
+        json_response = response.json()
+
+        if len(json_response) > 0:
+            try:
+                sample_response = json_response[0]
+            except:
+                print(json_response)
+                raise
+            else:
+                n_ = min(n_records, i+n)
+                print("Synced {} of {}".format(n_, n_records))
+                print("    Sample response: {}".format(sample_response))
+
+        responses.extend(json_response)
     return responses
 
 
