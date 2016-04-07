@@ -91,7 +91,6 @@ class FetchCustomerAccount(luigi.Task):
         xml = espi.fetch_customer_account(self.subscription_id,
                                           self.access_token)
         import time
-        time.sleep(10)
         with self.output().open('w') as target:
             target.write(xml)
 
@@ -144,6 +143,12 @@ class FetchCustomerUsage(luigi.Task):
         return luigi.LocalTarget('data/consumption/raw/' + filename)
 
 
+class SaveCustomerUsage(luiti.Task):
+
+    def run(self):
+        # make sure you save filename times
+        # to arrow.for_json().
+
 class ParseConsumptionFile(luigi.Task):
     subscription_id = luigi.IntParameter()
     access_token = luigi.Parameter()
@@ -153,8 +158,12 @@ class ParseConsumptionFile(luigi.Task):
     def requires(self):
         account = FetchCustomerAccount(self.subscription_id, self.access_token, self.espi)
         usage = [FetchCustomerUsage(self.subscription_id, self.access_token, up_id, up_cat, self.espi)
-                 for up_id, up_cat, in self.espi.fetch_usage_points(self.subscription_id,
+                 for up_id, up_cat in self.espi.fetch_usage_points(self.subscription_id,
                                                                self.access_token)]
+
+        new_usage = [SaveCustomerUsage(self.subscrption_id, up_cat, min_date, max_date, usage_xml)
+                     for up_cat, min_date, max_date, usage_xml
+                     in fetch_all_customer_usage(self.subscription_id, self.access_token, self.espi)]
         # TODO: rename to customer
         return {'account': account, 'usage': usage}
 

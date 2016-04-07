@@ -1,9 +1,13 @@
+import os
+import arrow
 import urllib
 import requests
 import datetime
 from dateutil import parser
 from dateutil.relativedelta import relativedelta
 import xml.etree.cElementTree as etree
+
+from .parsers import parse_usage_data
 
 
 class GreenButtonAPI():
@@ -149,3 +153,129 @@ def client_project_keys(s3_bucket, client_path):
     for k in s3_bucket:  # boto bucket object.
         if client_path in str(k.key):
             yield k
+
+from operator import itemgetter
+
+
+def find_reading_date_range(readings):
+    min_start = readings[0]["start"]
+    max_end = readings[0]["end"]
+    for reading in readings:
+        if reading['start'] < min_start:
+            min_start = reading['start']
+        if reading['end'] > max_end:
+            max_end = reading['end']
+    return min_start, max_end
+
+def check_dates(request_date, response_date, date_type, subscription_id, up_id):
+    try:
+        assert request_date == response_date
+    except AssertionError:
+        msg = "Request %s_date for subscription %s, usage point %s \
+               doesn't match response: %s %s" % (date_type, subscription_id,
+                                                 up_id, request_date,
+                                                 response_date)
+        logging.warn(msg)
+
+def get_max_date(current_datetime=arrow.utcnow(), end_of_day_hour_in_local_time=7, hour_data_updated=9):
+    '''
+    Return the max date for which we can get data: either
+    yesterday's data, if it has been made available already,
+    or the previous day's data.
+
+    By default, assume that data was gathered in US/Pacific,
+    so the max date for yesterday's data it today at 06:59 hours, since US/Pacific is usually UTC - 7 hours. Also,
+    assume that data is made available 2 hours after
+    day ends, by default.
+    TODO: make this daylight savings resilient...
+    TODO: check that a day of data always end at 0700,
+    regardless of time of year.
+    TODO: double check what hour data is updated.
+    '''
+    # Time today that yesterday's data is made available.
+    data_refresh_time = current_datetime.replace(hour=hour_data_updated, minute=0, second=0, microsecond=0)
+    # If yesterday's data has been made available...
+    if current_datetime > data_refresh_time:
+        # Return max date that will retrieve yesterday's data.
+        return data_refresh_time.replace(hour=end_of_day_hour_in_local_time - 1, minute=59)
+    # If it hasn't been made available yet...
+    else:
+        # Return max date for will retrieve the day before yesterday's data.
+        return data_refresh_time.replace(days=-1, hour=end_of_day_hour_in_local_time - 1, minute=59)
+
+
+def get_last_download_date(filenames):
+    '''
+    NOTE: Assumes that dates in filenames are accurate.
+    '''
+    date = parse_date(filenames[0].parse()[2])
+    for filename in filenames:
+        _, min_date, max_date = filename.parse()
+        if parse_date(max_date) > date:
+            date = max_date
+    # Make sure this returns the right thing!
+    return adjust_date(date)
+
+
+def get_previous_downloads(subscription_id, up_cat, bucket):
+    '''
+    Return full paths of usage dataset in s3 bucket
+    that belong to the given subscriber-usage point combination.
+    e.g. These are the paths to all the files we've downloaded of
+    J Smith's gas usage.
+    '''
+    for path in bucket:
+        # Parse filename, see if it belongs to subscriber-usage point.
+        filename = os.path.basename(path)
+        path_sub_id, path_up_cat, min_date, max_date = filename.split('_')
+        if str(subscription_id) == path_sub_id \
+           and str(up_cat) == path_up_cat:
+            yield path
+
+
+def path_to_max_date(path):
+    # TODO: GET THIS WORKING
+    date_str = os.path.splitext(os.path.basename(path))[0].split('_')[-1]
+    date = arrow.get(datestr) 
+    return date
+
+def get_last_download_date(filenames):
+    # TODO: GET THIS WORKING
+    parsed_filenames = [path_to_max_date(path) for path in filenames]
+    return sorted(parsed_filenames)[-1]
+
+def get_min_date(subscription_id, usage_point_category):
+    # Check S3 for previous usage data downloads for this
+    # subscriber and usage point.
+    previous_downloads = list(get_previous_downloads(subscription_id,
+                                                usage_point_category))
+    # If we already downloaded data, current request should ask for
+    # period starting immediately after the end of the last request.
+    if len(previous_downloads) > 0:
+        min_date = get_last_download_date(previous_downloads)
+    # If not, get everything we can. (4 years from PG&E).
+    else:
+        min_date = get_max_date() - "4 years"  # TODO: implement!
+
+
+def fetch_all_customer_usage(subscription_id, access_token, espi):
+    for up_id, up_cat in espi.fetch_usage_points(subscription_id, access_token):
+        # Figure out what date range to pull for this subscriber usage point.
+        # Will download last 4 years for new customers, new data since
+        # last download for existing customers.
+        # TODO: TEST THIS.
+        min_date = get_min_date(subscription_id, up_cat)
+        max_date = get_max_date()
+        usage_xml = espi.fetch_usage_data2(subscription_id, up_id,
+                                           access_token, min_date, max_date)
+
+        # Find actual min and max date.
+        readings = parse_usage_data(usage_xml, up_cat)
+        actual_min_date, actual_max_date = find_reading_date_range(readings)
+
+        # Log if we got back usage data for a different day than we asked for.
+        check_dates(min_date, actual_min_date, 'min')
+        check_dates(max_date, actual_max_date, 'max')
+
+        yield up_cat, actual_min_date, actual_max_date, usage_xml
+
