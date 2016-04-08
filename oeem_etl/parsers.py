@@ -1,8 +1,10 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-from eemeter import location
+import arrow
 from xml.etree import cElementTree
+
+from eemeter import location
 
 # TODO: FIGURE OUT WHICH IS WHICH.
 SERVICE_CAT_TO_FUEL_TYPE = {'0': ('electricity', 'kWh'),
@@ -52,14 +54,15 @@ def parse_reading(reading, service_cat):
     Parse EPSI IntervalReading XML element into OEEM uploader-compliant
     dictionary.
     '''
+    # Start and end are timestamps, convert to datetime.
     start = int(reading.find('.//{http://naesb.org/espi}start').text)
     duration = int(reading.find('.//{http://naesb.org/espi}duration').text)
     end = start + duration
     fuel_type, unit_name = SERVICE_CAT_TO_FUEL_TYPE[service_cat]
     value = reading.find('{http://naesb.org/espi}value').text
     return {'project_id': False,
-            'start': start,
-            'end': end,
+            'start': arrow.get(start),
+            'end': arrow.get(end),
             'fuel_type': fuel_type,
             'unit_name': unit_name,
             'value': value}

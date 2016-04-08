@@ -2,12 +2,22 @@ import os
 import arrow
 import urllib
 import requests
-import datetime
+import logging
+import py
 from dateutil import parser
-from dateutil.relativedelta import relativedelta
 import xml.etree.cElementTree as etree
 
 from .parsers import parse_usage_data
+
+
+def client_project_keys(s3_bucket, client_path):
+    '''
+    Return key objects in s3 bucket that are stored
+    under given path, associated with a particular client.
+    '''
+    for k in s3_bucket:  # boto bucket object.
+        if client_path in str(k.key):
+            yield k
 
 
 class GreenButtonAPI():
@@ -92,34 +102,12 @@ class ESPIAPI():
             usage_point_kind = entry_tag.find('.//{http://naesb.org/espi}kind').text
             yield usage_point_id, usage_point_kind
 
-    def fetch_usage_data2(self, subscription_id, usage_point_id, access_token, min_date, max_date):
+    def fetch_usage_data(self, subscription_id, usage_point_id, access_token, min_date, max_date):
         '''
         Get customer usage point's usage data from ESPI API.
         '''
-        print('OMG', min_date, max_date)
         params = urllib.parse.urlencode({'published-min': min_date.strftime('%Y-%m-%dT%H:%M:%SZ'),
                                          'published-max': max_date.strftime('%Y-%m-%dT%H:%M:%SZ')})
-        endpoint = 'Batch/Subscription/{}/UsagePoint/{}'.format(subscription_id,
-                                                                usage_point_id)
-        usage_url = self.api_url + endpoint + '?' + params
-        return requests.get(usage_url,
-                            headers=self.make_headers(access_token),
-                            cert=self.cert).text
-
-    def fetch_usage_data(self, subscription_id, usage_point_id, access_token, date_range):
-        '''
-        Get customer usage point's usage data from ESPI API.
-        '''
-        now = datetime.datetime.utcnow()
-        max_date = now.strftime('%Y-%m-%dT%H:%M:%SZ')
-        if date_range == 'all_data':
-            min_date = (now - relativedelta(years=4)).strftime('%Y-%m-%dT%H:%M:%SZ')  # Works for golden to 2/25/2012. Only returns a little over two months of data, though. Is this all we have, or is it limited? How far back can you go for someone?
-        elif date_range == 'new_data':
-            min_date = (now - relativedelta(days=2)).strftime('%Y-%m-%dT%H:%M:%SZ')  # Seems to get 3 days before, not 1. But it does return one day of data.
-        else:
-            raise ValueError('Please enter a valid date_range option string.')
-        params = urllib.parse.urlencode({'published-min': min_date,
-                                         'published-max': max_date})
         endpoint = 'Batch/Subscription/{}/UsagePoint/{}'.format(subscription_id,
                                                                 usage_point_id)
         usage_url = self.api_url + endpoint + '?' + params
@@ -145,18 +133,6 @@ class ESPIAPI():
                             cert=self.cert).text
 
 
-def client_project_keys(s3_bucket, client_path):
-    '''
-    Return key objects in s3 bucket that are stored
-    under given path, associated with a particular client.
-    '''
-    for k in s3_bucket:  # boto bucket object.
-        if client_path in str(k.key):
-            yield k
-
-from operator import itemgetter
-
-
 def find_reading_date_range(readings):
     min_start = readings[0]["start"]
     max_end = readings[0]["end"]
@@ -167,6 +143,7 @@ def find_reading_date_range(readings):
             max_end = reading['end']
     return min_start, max_end
 
+
 def check_dates(request_date, response_date, date_type, subscription_id, up_id):
     try:
         assert request_date == response_date
@@ -176,6 +153,7 @@ def check_dates(request_date, response_date, date_type, subscription_id, up_id):
                                                  up_id, request_date,
                                                  response_date)
         logging.warn(msg)
+
 
 def get_max_date(current_datetime=arrow.utcnow(), end_of_day_hour_in_local_time=7, hour_data_updated=9):
     '''
@@ -204,19 +182,6 @@ def get_max_date(current_datetime=arrow.utcnow(), end_of_day_hour_in_local_time=
         return data_refresh_time.replace(days=-1, hour=end_of_day_hour_in_local_time - 1, minute=59)
 
 
-def get_last_download_date(filenames):
-    '''
-    NOTE: Assumes that dates in filenames are accurate.
-    '''
-    date = parse_date(filenames[0].parse()[2])
-    for filename in filenames:
-        _, min_date, max_date = filename.parse()
-        if parse_date(max_date) > date:
-            date = max_date
-    # Make sure this returns the right thing!
-    return adjust_date(date)
-
-
 def get_previous_downloads(subscription_id, up_cat, bucket):
     '''
     Return full paths of usage dataset in s3 bucket
@@ -234,41 +199,51 @@ def get_previous_downloads(subscription_id, up_cat, bucket):
 
 
 def path_to_max_date(path):
-    # TODO: GET THIS WORKING
-    date_str = os.path.splitext(os.path.basename(path))[0].split('_')[-1]
-    date = arrow.get(datestr) 
-    return date
+    '''Extract the max date from a usage file path.'''
+    max_date_str = py.path.local(path).purebasename.split('_')[-1]
+    return arrow.get(max_date_str)
 
-def get_last_download_date(filenames):
-    # TODO: GET THIS WORKING
-    parsed_filenames = [path_to_max_date(path) for path in filenames]
+
+def get_last_download_date(paths):
+    '''Get the most recent max_date for a set of usage file paths.'''
+    parsed_filenames = [path_to_max_date(path) for path in paths]
     return sorted(parsed_filenames)[-1]
 
-def get_min_date(subscription_id, usage_point_category):
+
+def get_min_date(subscription_id, usage_point_category, bucket):
+    '''
+    Get min date for API call. If we've previously downloaded
+    data for the subscriber/usage point, pick up where we left off.
+    Otherwise, go back as far as you can.
+    '''
     # Check S3 for previous usage data downloads for this
     # subscriber and usage point.
     previous_downloads = list(get_previous_downloads(subscription_id,
-                                                usage_point_category))
+                                                     usage_point_category,
+                                                     bucket))
     # If we already downloaded data, current request should ask for
     # period starting immediately after the end of the last request.
     if len(previous_downloads) > 0:
-        min_date = get_last_download_date(previous_downloads)
+        last_dt = get_last_download_date(previous_downloads)
+        # Assumes that previous API calls always get full 24 hours
+        # of data, from 7am on day t, to 6:59 on day t+1.
+        assert last_dt.hour == 6 and last_dt.minute == 59  # TODO: generalize for all ESPI APIs.
+        return last_dt.replace(hour=7, minute=0)
     # If not, get everything we can. (4 years from PG&E).
     else:
-        min_date = get_max_date() - "4 years"  # TODO: implement!
+        return get_max_date().replace(years=-4, hour=7, minute=0)
 
 
-def fetch_all_customer_usage(subscription_id, access_token, espi):
+def fetch_all_customer_usage(subscription_id, access_token, espi, bucket):
     for up_id, up_cat in espi.fetch_usage_points(subscription_id, access_token):
         # Figure out what date range to pull for this subscriber usage point.
         # Will download last 4 years for new customers, new data since
         # last download for existing customers.
         # TODO: TEST THIS.
-        min_date = get_min_date(subscription_id, up_cat)
+        min_date = get_min_date(subscription_id, up_cat, bucket)
         max_date = get_max_date()
-        usage_xml = espi.fetch_usage_data2(subscription_id, up_id,
-                                           access_token, min_date, max_date)
-
+        usage_xml = espi.fetch_usage_data(subscription_id, up_id,
+                                          access_token, min_date, max_date)
         # Find actual min and max date.
         readings = parse_usage_data(usage_xml, up_cat)
         actual_min_date, actual_max_date = find_reading_date_range(readings)
