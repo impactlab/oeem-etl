@@ -18,13 +18,13 @@ from oeem_etl import fetchers
 def test_get_max_date_before_data_refresh():
     test_date = arrow.get(2016, 5, 26, 7, 59, 59)
     max_date = get_max_date(current_datetime=test_date, end_of_day_hour_in_local_time=6, hour_data_updated=8)
-    assert max_date == arrow.get(2016, 5, 25, 5, 59)
+    assert max_date == arrow.get(2016, 5, 25, 5, 59, 59)
 
 
 def test_get_max_date_after_data_refresh():
     test_date = arrow.get(2016, 5, 26, 8, 0, 1)
     max_date = get_max_date(current_datetime=test_date, end_of_day_hour_in_local_time=6, hour_data_updated=8)
-    assert max_date == arrow.get(2016, 5, 26, 5, 59)
+    assert max_date == arrow.get(2016, 5, 26, 5, 59, 59)
 
 
 ###########################
@@ -97,7 +97,7 @@ def test_get_min_date_existing_subscriber(tmpdir):
     sub_id_2 = '12405'
     up_cat_1 = '0'
     min_date = arrow.get(2015, 1, 1, 7, 0)
-    max_date = arrow.get(2015, 1, 2, 6, 59)
+    max_date = arrow.get(2015, 1, 2, 7, 0)
 
     fn_1 = "{}_{}_{}_{}.xml".format(sub_id_1,
                                     up_cat_1,
