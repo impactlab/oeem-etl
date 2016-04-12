@@ -90,13 +90,12 @@ class FetchCustomerAccount(luigi.Task):
     def run(self):
         xml = espi.fetch_customer_account(self.subscription_id,
                                           self.access_token)
-        import time
         with self.output().open('w') as target:
             target.write(xml)
 
     def output(self):
-        filename = str(self.subscription_id) + '-account.xml'
-        return luigi.LocalTarget('data/consumption/raw/' + filename)
+        filename = '{}.xml'.format(str(self.subscription_id))
+        return luigi.LocalTarget('data/consumption/account/' + filename)
 
 
 class FetchCustomerUsage(luigi.Task):
@@ -126,10 +125,10 @@ class FetchCustomerUsage(luigi.Task):
         #                             self.access_token,
         #                             self.date_range)
         xml = self.espi.fetch_usage_data2(self.subscription_id,
-                                     self.usage_point_id,
-                                     self.access_token,
-                                     self.min_date,
-                                     self.max_date)
+                                          self.usage_point_id,
+                                          self.access_token,
+                                          self.min_date,
+                                          self.max_date)
 
         readings = parse_usage_data(xml, self.usage_point_category)
         self.find_data_range(readings)
@@ -143,11 +142,96 @@ class FetchCustomerUsage(luigi.Task):
         return luigi.LocalTarget('data/consumption/raw/' + filename)
 
 
-class SaveCustomerUsage(luiti.Task):
+class SaveCustomerUsage(luigi.Task):
+    subscription_id = luigi.Parameter()
+    usage_point_category = luigi.Parameter()
+    min_date = luigi.DateParameter()
+    max_date = luigi.DateParameter()
+    xml = luigi.Parameter()
 
     def run(self):
-        # make sure you save filename times
-        # to arrow.for_json().
+        with self.output().open('w') as target:
+            target.write(self.xml)
+
+    def output(self):
+        filename = '{}_{}_{}_{}.xml'.format(self.subscription_id,
+                                            self.usage_point_category,
+                                            self.min_date.for_json(),
+                                            self.max_date.for_json())
+        return local.Target('data/consumption/raw/' + filename)
+
+
+class ParseCustomerUsage(luigi.Task):
+    subscription_id = luigi.Parameter()
+    usage_point_category = luigi.Parameter()
+    min_date = luigi.DateParameter()
+    max_date = luigi.DateParameter()
+    xml = luigi.Parameter()
+
+    def requires(self):
+        return SaveCustomerUsage(self.subscription_id,
+                                 self.usage_point_category,
+                                 self.min_date, self.max_date,
+                                 self.xml)
+
+    def run(self):
+        with self.output().open('w') as target:
+            xml = self.input().open('r').read()
+            gbp = parsers.ESPIUsageParser(xml)
+            # ConsumptionData objects check for data errors, and return
+            # energy values in correct units. It groups records by fuel type.
+            # In our case, we only have one, so get records from the first
+            # object returned.
+            usage_records = list(gbp.get_consumption_data_objects())[0].records()
+            target.write(json.dumps(usage_records))
+
+    def output(self):
+        filename = '{}_{}_{}_{}.json'.format(self.subscription_id,
+                                             self.usage_point_category,
+                                             self.min_date,
+                                             self.max_date)
+        return local.Target('data/consumption/parsed/' + filename)
+
+
+class ParseCustomerAccount(luigi.Task):
+    subscription_id = luigi.IntParameter()
+    access_token = luigi.Parameter()
+    espi = luigi.Parameter()
+
+    def requires(self):
+        return FetchCustomerAccount(self.subscription_id, self.access_token, self.espi)
+
+    def run(self):
+        with self.output().open('w') as target:
+            xml = self.input().open('r').read()
+            parsed_account = parse_account_data(xml)
+            target.write(json.dumps(parsed_account))
+
+    def output(self):
+        filename = '{}.json'.format(self.subscription_id)
+        return local.Target('data/consumption/accounts/' + filename)
+
+
+class ParseAllCustomers(luigi.Task):
+    config = luigi.Parameter()
+
+    def requires(self):
+        parsed_account_usage = []
+        green_button = self.config['GREEN_BUTTON']
+        espi = self.config['ESPI'],
+        bucket = self.config['S3_BUCKET']
+        for c in green_button.client_customers(self.config['CLIENT_ID']):
+            for up_cat, min_date, max_date, xml in fetch_all_customer_usage(c['subscription_id'],
+                                                                            c['active_access_token'],
+                                                                            espi, bucket):
+                parsed_account_usage.append((ParseCustomerAccount(c['subscription_id'],
+                                                                  c['active_access_token'],
+                                                                  espi),
+                                             ParseCustomerUsage(c['subscription_id'],
+                                                                p_cat, min_date,
+                                                                max_date, xml)))
+        return parsed_account_usage
+
 
 class ParseConsumptionFile(luigi.Task):
     subscription_id = luigi.IntParameter()
@@ -193,7 +277,6 @@ class ParseConsumptionFile(luigi.Task):
     def output(self):
         filename = self.subscription_id + '-' + self.date_range + '.json'
         return luigi.LocalTarget('data/consumption/parsed/' + filename)
-
 
 
 class ConnectProjectsToConsumption(luigi.Task):
