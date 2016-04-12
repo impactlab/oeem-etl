@@ -153,14 +153,12 @@ def check_dates(request_date, response_date, date_type, subscription_id, up_cat)
     try:
         # Data params in the API are inclusive. If your day starts at 0700,
         # and you set max-date to 0700, you'll get back the day.
-        # To get the previous day, set it to 0659. The max end date returned
-        # will be 0700, however, so you must adjust the request time
-        # to do a correct comparison in this case.
+        # To get the previous day, set it to 06:59:59. The max end date
+        # returned will be 0700, however, so you must add 1 second to
+        # the request time to see if you get the date you asked for.
         if date_type == 'max':
             request_date = request_date.replace(seconds=+1)
         # Also, usage point cat 1 starts one second after the hour.
-        if up_cat == '1':
-            request_date = request_date.replace(seconds=+1)
         assert request_date == response_date
     except AssertionError:
         msg = "Request %s_date for subscription %s, usage point %s \
@@ -170,7 +168,7 @@ def check_dates(request_date, response_date, date_type, subscription_id, up_cat)
         logging.warn(msg)
 
 
-def get_max_date(current_datetime=arrow.utcnow(), end_of_day_hour_in_local_time=7, hour_data_updated=9):
+def get_max_date(usage_point_category, current_datetime=arrow.utcnow(), end_of_day_hour_in_local_time=7, hour_data_updated=18):
     '''
     Return the max date for which we can get data: either
     yesterday's data, if it has been made available already,
@@ -189,12 +187,18 @@ def get_max_date(current_datetime=arrow.utcnow(), end_of_day_hour_in_local_time=
     data_refresh_time = current_datetime.replace(hour=hour_data_updated, minute=0, second=0, microsecond=0)
     # If yesterday's data has been made available...
     if current_datetime > data_refresh_time:
-        # Return max date that will retrieve yesterday's data.
-        return data_refresh_time.replace(hour=end_of_day_hour_in_local_time - 1, minute=59, second=59)
+        # Return max date that will retrieve yesterday's data, likely uploaded
+        # this morning.
+        max_date = data_refresh_time.replace(hour=end_of_day_hour_in_local_time - 1, minute=59, second=59)  # If you set max-date one second after this, you might get the next day.
     # If it hasn't been made available yet...
     else:
-        # Return max date for will retrieve the day before yesterday's data.
-        return data_refresh_time.replace(days=-1, hour=end_of_day_hour_in_local_time - 1, minute=59, second=59)
+        # Return max date for will retrieve the day before yesterday's data,
+        # likely uploaded yesterday.
+        max_date = data_refresh_time.replace(days=-1, hour=end_of_day_hour_in_local_time - 1, minute=59, second=59)
+    # Usage category 1 starts at 07:00:01, so set max date to 7:00:00.
+    if usage_point_category == '1':
+        max_date = max_date.replace(seconds=+1)
+    return max_date
 
 
 def get_previous_downloads(subscription_id, up_cat, bucket):
@@ -241,16 +245,15 @@ def get_min_date(subscription_id, usage_point_category, bucket):
     if len(previous_downloads) > 0:
         last_dt = get_last_download_date(previous_downloads)
         # Assumes that previous API calls always get full 24 hours
-        # of data, from 7am on day t, to 6:59 on day t+1.
-        assert last_dt.hour == 7 and (last_dt.second == 0 or last_dt.second == 1)  # TODO: generalize for all ESPI APIs.
-        return last_dt.replace(hour=7, minute=0)
+        # of data, from 07:00:00 (or 7:00:01, if usage cat 1) on
+        # day t, to the same time on day t+1.
+        assert last_dt.hour == 7 and last_dt.minute == 0 and (last_dt.second == 0 or last_dt.second == 1)  # TODO: generalize for all ESPI APIs.
+        return last_dt
     # If not, get everything we can. (4 years from PG&E).
     else:
-        max_date = get_max_date()
-        min_date = arrow.get(max_date.year - 4, max_date.month, max_date.day, 7)
-        if usage_point_category == '1':
-            min_date.replace(seconds=+1)
-        return min_date
+        # Time in max date is one second before next day, must
+        # add 1s so it can serve as min date.
+        return get_max_date(usage_point_category).replace(years=-4, seconds=+1)
 
 
 def fetch_all_customer_usage(subscription_id, access_token, espi, bucket):
@@ -258,9 +261,8 @@ def fetch_all_customer_usage(subscription_id, access_token, espi, bucket):
         # Figure out what date range to pull for this subscriber usage point.
         # Will download last 4 years for new customers, new data since
         # last download for existing customers.
-        # TODO: TEST THIS.
         min_date = get_min_date(subscription_id, up_cat, bucket)
-        max_date = get_max_date()
+        max_date = get_max_date(up_cat)
         usage_xml = espi.fetch_usage_data(subscription_id, up_id,
                                           access_token, min_date, max_date)
         # Find actual min and max date.
@@ -272,7 +274,10 @@ def fetch_all_customer_usage(subscription_id, access_token, espi, bucket):
             # Log if we got back usage data for a different day than we asked for.
             check_dates(min_date, actual_min_date, 'min', subscription_id, up_cat)
             check_dates(max_date, actual_max_date, 'max', subscription_id, up_cat)
-
+            # Return actual dates you got data back for, just in case
+            # customer doesn't have data going all the way back, or
+            # your max-date is earlier than you asked for because
+            # data isn't available yet.
             yield up_cat, actual_min_date, actual_max_date
         else:
             logging.warn('No readings for {} {} from {} to {}'.format(subscription_id,
