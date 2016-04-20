@@ -88,8 +88,8 @@ class FetchCustomerAccount(luigi.Task):
     espi = luigi.Parameter()
 
     def run(self):
-        xml = espi.fetch_customer_account(self.subscription_id,
-                                          self.access_token)
+        xml = self.espi.fetch_customer_account(self.subscription_id,
+                                               self.access_token)
         import time
         time.sleep(10)
         with self.output().open('w') as target:
