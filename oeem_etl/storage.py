@@ -1,4 +1,5 @@
 import json
+from luigi.format import MixedUnicodeBytesFormat
 from luigi.s3 import S3Client, S3Target
 from luigi.file import LocalFileSystem, LocalTarget
 from luigi.contrib.gcs import GCSClient, GCSTarget
@@ -15,8 +16,8 @@ class StorageClient():
         '''Create client and target objects for storage service.'''
 
         if self.storage_service == 'local':
-            self.client = LocalFileSystem()
-            return  LocalTarget
+            client = LocalFileSystem()
+            target = LocalTarget
 
         elif self.storage_service == 's3':
             client = S3Client(aws_access_key_id=self.config['aws_access_key'],
@@ -39,7 +40,7 @@ class StorageClient():
         self.client = client
         class TargetWithClient(target):
             def __init__(self, path):
-                super().__init__(path, client=client)
+                super().__init__(path, client=client, format=MixedUnicodeBytesFormat())
         self.target = TargetWithClient
 
     def get_target(self):
