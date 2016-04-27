@@ -1,81 +1,48 @@
 import luigi
 import yaml
-from .parse import ParseS3ToS3
-from ..uploader import (
-    upload_project_dataframe,
-    upload_consumption_dataframe,
-)
+from .parse import ParseFile
+from ..uploader import upload_project_dataframe, upload_consumption_dataframe
 import pandas as pd
 
-class UploadDatasets(luigi.Task):
-
-    path_to_settings = luigi.Parameter(
-            description="Path to settings YAML file")
-
-    fetched_project_s3_key_generator = luigi.Parameter(
-            description="Generator of parsed project s3 keys")
-    fetched_consumption_s3_key_generator= luigi.Parameter(
-            description="Generator of parsed consumption s3 keys")
-
-    parsed_project_s3_key_generator = luigi.Parameter(
-            description="Generator of parsed project s3 keys")
-    parsed_consumption_s3_key_generator= luigi.Parameter(
-            description="Generator of parsed consumption s3 keys")
-
-    project_parser_callable = luigi.Parameter(
-            description="Project parser callable")
-    consumption_parser_callable = luigi.Parameter(
-            description="Consumption parser callable")
-
-    project_fetcher_callable = luigi.Parameter(
-            description="Project parser callable")
-    consumption_fetcher_callable = luigi.Parameter(
-            description="Consumption parser callable")
+# TODO WHAT HAPPENS IF THIS CRASHES BEFORE BEING DONE
+# TODO WHAT HAPPENS IF YOU CALL THIS TWICE? says it's done, why?
+class UploadDatasets(luigi.WrapperTask):
+    raw_project_paths = luigi.Parameter()
+    raw_consumption_paths = luigi.Parameter()
+    project_parser = luigi.Parameter()
+    consumption_parser = luigi.Parameter()
+    target = luigi.Parameter()
+    datastore = luigi.Parameter()
 
     def requires(self):
-        self.settings = yaml.load(open(self.path_to_settings, 'r').read())
+        parsed_projects = [ParseFile(path, self.target,
+                                     self.project_parser)
+                           for path in self.raw_project_paths]
+        # parsed_consumption = [ParseFile(path, self.target,
+        #                                 self.consumption_parser)
+        #                       for path in self.raw_consumption_paths]
+        return {'projects': parsed_projects}
+                #, 'consumption': parsed_projects}
 
-        # get connected projects and consumptions
-        parsed_projects = [ ParseS3ToS3(
-            s3_key_fetched,
-            s3_key_parsed,
-            self.project_parser_callable,
-            self.project_fetcher_callable,
-            self.settings["s3_profile"],
-        ) for s3_key_fetched, s3_key_parsed in zip(
-            self.fetched_project_s3_key_generator(),
-            self.parsed_project_s3_key_generator())]
-
-        # get parsed consumptions
-        parsed_consumption = [ ParseS3ToS3(
-            s3_key_fetched,
-            s3_key_parsed,
-            self.consumption_parser_callable,
-            self.consumption_fetcher_callable,
-            self.settings["s3_profile"],
-        ) for s3_key_fetched, s3_key_parsed in zip(
-            self.fetched_consumption_s3_key_generator(),
-            self.parsed_consumption_s3_key_generator())]
-
-        return {
-            'projects': parsed_projects,
-            'consumption': parsed_consumption,
-        }
-
-    def load_datasets(self, input_dict, key):
-        return pd.concat([pd.read_csv(target.open('r')) for target in input_dict[key]])
+    def load_datasets(self, targets, dataset_type):
+        try:
+            return pd.concat([pd.read_csv(target.open('r'))
+                              for target in targets[dataset_type]])
+        except ValueError:
+            # TODO: raise error?
+            print('No %s datasets to upload!' % dataset_type)  # TODO use logger
 
     def run(self):
-        project_df = self.load_datasets(self.input(), 'projects')
-        project_df.baseline_period_end = pd.to_datetime(project_df.baseline_period_end)
-        project_df.reporting_period_start = pd.to_datetime(project_df.reporting_period_start)
-        consumption_df = self.load_datasets(self.input(), 'consumption')
-        consumption_df.start = pd.to_datetime(consumption_df.start)
-        consumption_df.end = pd.to_datetime(consumption_df.end)
+        # Load projects into DataFrame and convert date columns to datetimes.
+        parsed_projects = self.load_datasets(self.input(), 'projects')
+        parsed_projects.baseline_period_end = pd.to_datetime(parsed_projects.baseline_period_end)
+        parsed_projects.reporting_period_start = pd.to_datetime(parsed_projects.reporting_period_start)
 
-        url = self.settings["datastore_url"]
-        access_token = self.settings["datastore_token"]
-        project_owner = self.settings["project_owner"]
+        # Load consumption records and convert date columns to datetimes.
+        # parsed_consumption = self.load_datasets(self.input(), 'consumption')
+        # parsed_consumption.start = pd.to_datetime(parsed_consumption.start)
+        # parsed_consumption.end = pd.to_datetime(parsed_consumption.end)
 
-        project_results = upload_project_dataframe(project_df, url, access_token, project_owner)
-        consumption_results = upload_consumption_dataframe(consumption_df, url, access_token)
+        # Upload parsed data to datastore.
+        project_results = upload_project_dataframe(parsed_projects, self.datastore)
+        # consumption_results = upload_consumption_dataframe(parsed_consumption, self.datastore)

@@ -131,7 +131,7 @@ def upload_consumption_csv(consumption_csv_file, url, access_token):
     consumption_df.end = pd.to_datetime(consumption_df.end)
     return upload_consumption_dataframe(consumption_df, url, access_token)
 
-def upload_project_dataframe(project_df, url, access_token, project_owner):
+def upload_project_dataframe(project_df, datastore):
     """Uploads project data in pandas DataFrame format to a datastore instance.
 
     Parameters
@@ -149,7 +149,7 @@ def upload_project_dataframe(project_df, url, access_token, project_owner):
     project_owner : int
         Primary key of project_owner for datastore.
     """
-    requester = Requester(url, access_token)
+    requester = Requester(datastore['url'], datastore['access_token'])
 
     project_attribute_key_records = _get_project_attribute_keys_data(project_df)
 
@@ -158,7 +158,7 @@ def upload_project_dataframe(project_df, url, access_token, project_owner):
     for project_data, project_attributes_data in \
             _get_project_data(project_df, project_attribute_key_records):
 
-        project_data["project_owner_id"] = project_owner
+        project_data["project_owner_id"] = datastore['project_owner']
         project_records.append(project_data)
         project_attribute_records.extend(project_attributes_data)
 
@@ -224,6 +224,7 @@ def _bulk_sync(requester, records, url, n):
         response = requester.post(url, batch)
         json_response = response.json()
 
+        print(json_response)
         if len(json_response) > 0:
             try:
                 sample_response = json_response[0]

@@ -1,50 +1,46 @@
+import os
 import luigi
-from luigi.s3 import S3Target, S3Client
-from luigi.format import MixedUnicodeBytesFormat
 
-from .fetch import FetchToS3
 
-class ParseS3ToS3(luigi.Task):
-    s3_key_fetched = luigi.Parameter()
-    s3_key_parsed = luigi.Parameter()
-    parser_callable = luigi.Parameter()
-    fetcher_callable = luigi.Parameter()
-    s3_profile = luigi.Parameter()
-
-    def requires(self):
-        return FetchToS3(
-            self.s3_key_fetched,
-            self.fetcher_callable,
-            self.s3_profile,
-        )
-
-    def run(self):
-        input_file = self.input().open('r')
-        with self.output().open('w') as f:
-            f.write(self.parser_callable(input_file))
+class File(luigi.ExternalTask):
+    raw_file_path = luigi.Parameter()
+    target = luigi.Parameter()
 
     def output(self):
-        return S3Target(self.s3_key_parsed, format=MixedUnicodeBytesFormat(), client=self._s3_client())
+        return self.target(self.raw_file_path)
 
-    def _s3_client(self):
-        return S3Client(profile_name=self.s3_profile)
 
-class ParseLocalToLocal(luigi.Task):
-    filepath_fetched = luigi.Parameter()
-    filepath_parsed = luigi.Parameter()
-    parser_callable = luigi.Parameter()
-    fetcher_callable = luigi.Parameter()
+class ParseFile(luigi.Task):
+    raw_file_path = luigi.Parameter()
+    target = luigi.Parameter()
+    parser = luigi.Parameter()
 
     def requires(self):
-        return FetchToS3(
-            self.filepath_fetched,
-            self.fetcher_callable,
-        )
+        return File(self.raw_file_path, self.target)
 
     def run(self):
-        input_file = self.input().open('r')
+        raw_data = self.input().open('r')
         with self.output().open('w') as f:
-            f.write(self.parser_callable(input_file))
+            f.write(self.parser(raw_data))
+
+    def _get_parsed_file_path(self, path):
+        '''
+        Create parsed file path that corresponds to raw file.
+
+        Example:
+        <client-bucket>/projects/raw/2015-06-01.xml
+        <client-bucket>/projects/parsed/2015-06-01.csv
+        '''
+        split_path = path.split('/')
+        # Change parent dir from 'raw' to 'parsed'.
+        split_path[-2] = 'parsed'
+        # Change file extension to csv.
+        filename = os.path.splitext(split_path[-1])[0]
+        split_path[-1] = filename + '.csv'
+        return '/'.join(split_path)
 
     def output(self):
-        return luigi.LocalTarget(self.filepath_parsed)
+        # Parsed files should have the same filename as raw ones,
+        # but placed in a sibling 'parsed' directory, and saved to csv.
+        parsed_file_path = self._get_parsed_file_path(self.raw_file_path)
+        return self.target(parsed_file_path)
