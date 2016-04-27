@@ -6,6 +6,7 @@ import pandas as pd
 
 # TODO WHAT HAPPENS IF THIS CRASHES BEFORE BEING DONE
 # TODO WHAT HAPPENS IF YOU CALL THIS TWICE? says it's done, why?
+# even when you update the code.
 class UploadDatasets(luigi.WrapperTask):
     raw_project_paths = luigi.Parameter()
     raw_consumption_paths = luigi.Parameter()
@@ -18,11 +19,10 @@ class UploadDatasets(luigi.WrapperTask):
         parsed_projects = [ParseFile(path, self.target,
                                      self.project_parser)
                            for path in self.raw_project_paths]
-        # parsed_consumption = [ParseFile(path, self.target,
-        #                                 self.consumption_parser)
-        #                       for path in self.raw_consumption_paths]
-        return {'projects': parsed_projects}
-                #, 'consumption': parsed_projects}
+        parsed_consumption = [ParseFile(path, self.target,
+                                        self.consumption_parser)
+                              for path in self.raw_consumption_paths]
+        return {'projects': parsed_projects, 'consumption': parsed_consumption}
 
     def load_datasets(self, targets, dataset_type):
         try:
@@ -39,10 +39,12 @@ class UploadDatasets(luigi.WrapperTask):
         parsed_projects.reporting_period_start = pd.to_datetime(parsed_projects.reporting_period_start)
 
         # Load consumption records and convert date columns to datetimes.
-        # parsed_consumption = self.load_datasets(self.input(), 'consumption')
-        # parsed_consumption.start = pd.to_datetime(parsed_consumption.start)
-        # parsed_consumption.end = pd.to_datetime(parsed_consumption.end)
+        parsed_consumption = self.load_datasets(self.input(), 'consumption')
+        print("OK!")
+        print(parsed_consumption.columns)
+        parsed_consumption.start = pd.to_datetime(parsed_consumption.start)
+        parsed_consumption.end = pd.to_datetime(parsed_consumption.end)
 
         # Upload parsed data to datastore.
         project_results = upload_project_dataframe(parsed_projects, self.datastore)
-        # consumption_results = upload_consumption_dataframe(parsed_consumption, self.datastore)
+        consumption_results = upload_consumption_dataframe(parsed_consumption, self.datastore)

@@ -21,7 +21,7 @@ class ParseFile(luigi.Task):
     def run(self):
         raw_data = self.input().open('r')
         with self.output().open('w') as f:
-            f.write(self.parser(raw_data))
+            f.write(self.parser(self.raw_file_path, raw_data))
 
     def _get_parsed_file_path(self, path):
         '''
