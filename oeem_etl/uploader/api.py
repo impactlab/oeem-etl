@@ -177,7 +177,7 @@ def upload_project_dataframe(project_df, datastore):
         "project_attributes": project_attribute_responses,
     }
 
-def upload_consumption_dataframe(consumption_df, url, access_token):
+def upload_consumption_dataframe(consumption_df, datastore):
     """Uploads consumption data in pandas DataFrame format to a datastore instance.
 
     Parameters
@@ -192,7 +192,7 @@ def upload_consumption_dataframe(consumption_df, url, access_token):
     access_token : str
         Access token for the target datastore.
     """
-    requester = Requester(url, access_token)
+    requester = Requester(datastore['url'], datastore['access_token'])
 
     consumption_metadata_records = []
     consumption_record_records = []
@@ -224,7 +224,6 @@ def _bulk_sync(requester, records, url, n):
         response = requester.post(url, batch)
         json_response = response.json()
 
-        print(json_response)
         if len(json_response) > 0:
             try:
                 sample_response = json_response[0]
