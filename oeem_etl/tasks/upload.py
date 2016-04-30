@@ -40,8 +40,6 @@ class UploadDatasets(luigi.WrapperTask):
 
         # Load consumption records and convert date columns to datetimes.
         parsed_consumption = self.load_datasets(self.input(), 'consumption')
-        print("OK!")
-        print(parsed_consumption.columns)
         parsed_consumption.start = pd.to_datetime(parsed_consumption.start)
         parsed_consumption.end = pd.to_datetime(parsed_consumption.end)
 

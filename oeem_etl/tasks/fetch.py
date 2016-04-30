@@ -1,39 +1,35 @@
-from ..fetchers import fetch_all_customer_usage
+import luigi
+from ..fetchers import fetch_customer_usage
 
-class SaveCustomerUsage(luigi.Task):
-    project_id = luigi.Parameter()
-    usage_point_category = luigi.Parameter()
-    min_date = luigi.DateParameter()
-    max_date = luigi.DateParameter()
-    xml = luigi.Parameter()
+
+class FetchCustomerUsage(luigi.Task):
+    customer = luigi.Parameter()
+    usage_point = luigi.Parameter()
+    run_num = luigi.Parameter()
+    # TODO remove this
+    espi_client = luigi.Parameter()
+    target = luigi.Parameter()
 
     def run(self):
-        with self.output().open('w') as target:
-            target.write(self.xml)
+        xml = fetch_customer_usage(self.customer, self.usage_point, self.run_num, self.target)
+        with self.output().open('w') as f:
+            f.write(self.xml)
 
     def output(self):
-        filename = '{}_{}_{}_{}.xml'.format(self.project_id
-                                            self.usage_point_category,
-                                            self.min_date.for_json(),
-                                            self.max_date.for_json())
-        # TODO: make base work with  target factory.
-        return local.Target('data/consumption/raw/' + filename)
+        filename = '{}_{}_{}.xml'.format(self.customer['project_id'],
+                                         self.usage_point['id'], self.run_num)
+        # TODO fix this
+        return self.target('gs://oeem-renew-financial-data/' + 'consumption/test2/' + filename)
+
 
 class FetchAllCustomers(luigi.WrapperTask):
-    config = luigi.Parameter()
     customers = luigi.Parameter()
+    raw_consumption_paths = luigi.Parameter()
+    espi_client = luigi.Parameter()
     target = luigi.Parameter()
 
     def requires(self):
-        # TODO refactor fetch_all_customer_usage into a class?
-        tasks = []
-        for customer in customers:
-            for up_cat, min_date, max_date, usage_xml in fetch_all_customer_usage(customer['subscription_id'],
-                                                                                  customer['active_access_token'],
-                                                                                  # TODO pass this in
-                                                                                  self.espi):
-                tasks.append(SaveCustomerUsage(customer['project_id'],
-                                               up_cat, min_date,
-                                               max_date, usage_xml))
-
-        return tasks
+        for customer in self.customers:
+            for usage_point in self.espi_client.fetch_usage_points(customer):
+                run_num = get_last_run_num(customer, usage_point, raw_consumption_paths)
+                FetchCustomerUsage(customer, usage_point, run_num, self.espi_client, self.target())
