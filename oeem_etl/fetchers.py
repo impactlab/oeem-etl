@@ -7,9 +7,17 @@ import py
 from dateutil import parser
 import xml
 import xml.etree.cElementTree as etree
+from functools import lru_cache
 
 from .parsers import parse_usage_data
 
+class hashabledict(dict):
+    '''Hashable dict so that luigi can add Tasks that
+    are parameterized by dicts to a cache. This is helpful
+    so it doesnt have to call FetchAllCustomers's expensive
+    requires method multiple times.'''
+    def __hash__(self):
+        return hash(tuple(sorted(self.items())))
 
 class GreenButtonAPI():
     '''
@@ -38,12 +46,13 @@ class GreenButtonAPI():
         Return Green Button access token, subscriber id, join date,
         and other info for all customers of given client.
         '''
-        for customer_id in self.fetch_client_customer_ids(client_id):
+        # TODO REMOVE THE SLICE, its only for development
+        for customer_id in self.fetch_client_customer_ids(client_id)[:2]:
             customer_url = urllib.parse.urljoin(self.api_url, customer_id)
             customer = requests.get(customer_url, headers=self.headers).json()
             # Prevent ESPI API calls for customers with no access tokens.
             if customer['active_access_token'] is not None:
-                out = []
+                out = hashabledict()
                 # Customer's subcription id lives in resource uri.
                 out['subscription_id'] = customer['resource_uri'].split('/')[-1]
                 out['project_id'] = customer['project_id']
@@ -72,7 +81,6 @@ class ESPIAPI():
         Get the id and ServiceCategory kind of customer's usage points
         from ESPI API.
         '''
-        print(customer)
         endpoint = 'Subscription/{}/UsagePoint'.format(customer['subscription_id'])
         subscription_url = self.api_url + endpoint
         usage_point_xml = requests.get(subscription_url,
@@ -81,7 +89,8 @@ class ESPIAPI():
         try:
             for usage_point_id, usage_point_cat \
             in self.parse_usage_points(usage_point_xml):
-                yield {'id': usage_point_id, 'cat': usage_point_cat}
+                yield hashabledict({'id': usage_point_id,
+                                    'cat': usage_point_cat})
 
         except xml.etree.ElementTree.ParseError:
             print("Couldn't parse xml!")
@@ -116,16 +125,6 @@ class ESPIAPI():
         return requests.get(usage_url,
                             headers=self.make_headers(access_token),
                             cert=self.cert).text
-
-    def fetch_customer_usage(self, subscription_id, access_token, date_range):
-        '''
-        Get all usage data for customer, across all usage points, from
-        ESPI API. Save files to disk.
-        # TODO: SINGLE OUTPUT FILE FOR ALL USAGE POINTS?
-        '''
-        for usage_point in self.fetch_usage_points(subscription_id, access_token):
-            yield self.fetch_usage_data(subscription_id, usage_point['id'],
-                                         access_token, date_range)
 
     def fetch_customer_account(self, subscription_id, access_token):
         '''Get customer name and address for ESPI API.'''
@@ -170,7 +169,7 @@ def check_dates(request_date, response_date, date_type, subscription_id, up_cat)
         logging.warn(msg)
 
 
-def get_max_date(usage_point_category, current_datetime=arrow.utcnow(), end_of_day_hour_in_local_time=7, hour_data_updated=18):
+def get_max_date(usage_point, current_datetime=arrow.utcnow(), end_of_day_hour_in_local_time=7, hour_data_updated=18):
     '''
     Return the max date for which we can get data: either
     yesterday's data, if it has been made available already,
@@ -198,7 +197,7 @@ def get_max_date(usage_point_category, current_datetime=arrow.utcnow(), end_of_d
         # likely uploaded yesterday.
         max_date = data_refresh_time.replace(days=-1, hour=end_of_day_hour_in_local_time - 1, minute=59, second=59)
     # Usage category 1 starts at 07:00:01, so set max date to 7:00:00.
-    if usage_point_category == '1':
+    if usage_point['cat'] == '1':
         max_date = max_date.replace(seconds=+1)
     return max_date
 
@@ -213,63 +212,105 @@ def get_previous_downloads(project_id, up_id, bucket):
     for path in bucket:
         # Parse filename, see if it belongs to project-usage point.
         filename = os.path.basename(path)
-        path_proj_id, path_up_id, run_num = filename.split('_')
+        path_project_id, path_up_id, run_num = filename.split('_')
         if str(project_id) == path_project_id \
            and str(up_id) == path_up_id:
             yield path
 
+def get_max_date_if_run_now(customer, usage_point, espi):
+    max_date = get_max_date(usage_point)
+    usage_xml = espi.fetch_usage_data(customer['subscription_id'],
+                                      usage_point['id'],
+                                      customer['access_token'],
+                                      max_date.replace(days=-2, seconds=+1) ,
+                                      max_date)
+    # TODO: make this single function?
+    readings = parse_usage_data(usage_xml, usage_point['cat'])
+    actual_min_date, actual_max_date = find_reading_date_range(readings)
+    return actual_max_date
+
+def should_run_now(customer, usage_point, run_num, espi, target):
+    max_date_if_run_now = get_max_date_if_run_now(customer, usage_point, espi)
+    max_date_last_run = fetch_last_run_max_date(customer['project_id'],
+                                                usage_point, run_num,
+                                                target)
+    return max_date_last_run < max_date_if_run_now
 
 def path_to_run_num(path):
     '''Extract the run number from a usage file path.'''
     return py.path.local(path).purebasename.split('_')[-1]
 
-
 def get_last_run_num(paths):
-    '''Get the most recent max_date for a set of usage file paths.'''
-    run_numbers = [path_to_num_num(path) for path in paths]
-    return sorted(run_numbers)[-1]
+    '''
+    Get the most recent run number for a set of usage file paths.
+    NOTE: assumes you're only passing in filepaths for a single customer.'''
+    run_numbers = [path_to_run_num(path) for path in paths]
+    return int(sorted(run_numbers)[-1])
 
+def get_run_num(customer, usage_point, bucket, espi, target):
+    '''Get current run number for a customer's usage data.'''
+    previous_downloads = list(get_previous_downloads(customer['project_id'],
+                                                     usage_point['id'],
+                                                     bucket))
+    # If fetch has never run for this customer-up, run for the first time.
+    if len(previous_downloads) == 0:
+        run_num = 0
+        should_run = True
+    # If not, run fetch if you haven't already fetched data available
+    # right now.
+    else:
+        run_num = get_last_run_num(previous_downloads) + 1
+        should_run = should_run_now(customer, usage_point, run_num, espi, target)
+    return run_num, should_run
 
-def get_min_date(subscription_id, usage_point_category, run_rum, target):
+def fetch_last_run_max_date(project_id, usage_point, run_num, target):
+    # If we already downloaded data, current request should ask for
+    # period starting immediately after the end of the last request.
+    last_run_num = int(run_num) - 1
+    filename = '{}_{}_{}.xml'.format(project_id,
+                                         usage_point['id'],
+                                         last_run_num)
+    # TODO fix path
+    with target('gs://oeem-renew-financial-data/' + 'consumption/raw/' + filename).open('r') as f:
+        usage_xml = f.read()
+
+    readings = parse_usage_data(usage_xml, usage_point['cat'])
+    actual_min_date, actual_max_date = find_reading_date_range(readings)
+    return actual_max_date
+
+def get_min_date(project_id, usage_point, run_num, target):
     '''
     Get min date for API call. If we've previously downloaded
     data for the subscriber/usage point, pick up where we left off.
     Otherwise, go back as far as you can.
     '''
+    # If we already downloaded data, current request should ask for
+    # period starting immediately after the end of the last request.
     if run_num != 0:
-        # If we already downloaded data, current request should ask for
-        # period starting immediately after the end of the last request.
-        filename = '{}_{}_{}.xml'.format(project_id, usage_point['id'], run_rum)
-        # TODO fix path
-        with target('gs://oeem-renew-financial-data/' + 'consumption/raw/' + filename).open('r') as f:
-            usage_xml = f.read()
-
-        readings = parse_usage_data(usage_xml, usage_point['cat'])
-        actual_min_date, actual_max_date = find_reading_date_range(readings)
-
+        max_date_last_run = fetch_last_run_max_date(project_id, usage_point, run_num, target)
         # Assumes that previous API calls always get full 24 hours
         # of data, from 07:00:00 (or 7:00:01, if usage cat 1) on
         # day t, to the same time on day t+1.
-        assert actual_max_date.hour == 7 and actual_max_date.minute == 0 and (actual_max_date.second == 0 or actual_max_date.second == 1)  # TODO: generalize for all ESPI APIs.
-        return actual_max_date
-
-        # If not, get everything we can. (4 years from PG&E).
+        assert max_date_last_run.hour == 7 and last_runmax_date.minute == 0 and (last_runmax_date.second == 0 or last_runmax_date.second == 1)  # TODO: generalize for all ESPI APIs.
+        return max_date_last_run
+    # If not, get everything we can. (4 years from PG&E).
     else:
         # Time in max date is one second before next day, must
         # add 1s so it can serve as min date.
         # i.e. 06:59:59 (end of one day) -> 07:00:00 (start of next one)
-        return get_max_date(usage_point_category).replace(years=-4, seconds=+1)
+        return get_max_date(usage_point).replace(years=-4, seconds=+1)
 
 
 def fetch_customer_usage(customer, usage_point, run_num, espi, target):
     subscription_id = customer['subscription_id']
+    project_id = customer['project_id']
     access_token = customer['access_token']
     # Figure out what date range to pull for this subscriber usage point.
     # Will download last 4 years for new customers, new data since
     # last download for existing customers.
     # TODO rewrite min_date
-    min_date = get_min_date(customer['project_id'], usage_point['id'], run_num, target)
-    max_date = get_max_date(usage_point['cat'])
+    min_date = get_min_date(project_id, usage_point, run_num, target)
+    max_date = get_max_date(usage_point)
     # Get the usage data.
     usage_xml = espi.fetch_usage_data(subscription_id, usage_point['id'],
                                       access_token, min_date, max_date)
@@ -286,18 +327,9 @@ def fetch_customer_usage(customer, usage_point, run_num, espi, target):
         # customer doesn't have data going all the way back, or
         # your max-date is earlier than you asked for because
         # data isn't available yet.
-        yield usage_xml
+        return usage_xml
     else:
         logging.warn('No readings for {} {} from {} to {}'.format(subscription_id,
                                                                   usage_point['cat'],
                                                                   min_date, max_date))
 
-
-def get_run_num(customer, usage_point, raw_consumption_paths):
-    previous_downloads = list(get_previous_downloads(customer['project_id'],
-                                                     usage_point['cat'],
-                                                     raw_consumption_paths))
-    if len(previous_downloads) > 0:
-        return get_last_run_num(previous_downloads) + 1
-    else:
-        return 0
