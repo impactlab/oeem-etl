@@ -50,7 +50,7 @@ class StorageClient():
         '''Generator that returns a list of paths to the client's
         raw data files - either projects or consumption - that
         should be parsed and uploaded.'''
-        path_to_raw_files = '{}/raw/'.format(dataset_type)
+        path_to_raw_files = '{}/test/'.format(dataset_type)
         if self.storage_service == 's3':
             client_path = 's3://{}/{}'.format(self.config['s3_bucket_name'],
                                               self.config.get('s3_client_path', ''))
