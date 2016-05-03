@@ -1,8 +1,8 @@
 import json
 from luigi.format import MixedUnicodeBytesFormat
-from luigi.s3 import S3Client, S3Target
+from luigi.s3 import S3Client, S3Target, S3FlagTarget
 from luigi.file import LocalFileSystem, LocalTarget
-from luigi.contrib.gcs import GCSClient, GCSTarget
+from luigi.contrib.gcs import GCSClient, GCSTarget, GCSFlagTarget
 from oauth2client.service_account import ServiceAccountCredentials
 import os
 
@@ -20,12 +20,14 @@ class StorageClient():
         if self.storage_service == 'local':
             client = LocalFileSystem()
             target = LocalTarget
+            flag_target = LocalTarget # just use a normal target
 
         elif self.storage_service == 's3':
             client = S3Client(
                 aws_access_key_id=self.config['aws_access_key_id'],
                 aws_secret_access_key=self.config['aws_secret_access_key'])
             target = S3Target
+            flag_target = S3FlagTarget
 
         elif self.storage_service == 'gcs':
 
@@ -37,6 +39,7 @@ class StorageClient():
             cred = ServiceAccountCredentials.from_json_keyfile_dict(key_json)
             client = GCSClient(oauth_credentials=cred)
             target = GCSTarget
+            flag_target = GCSFlagTarget
         else:
             raise EnvironmentError('Please add known file_storage value to config.')
 
@@ -48,11 +51,20 @@ class StorageClient():
             def __init__(self, path):
                 super().__init__(path, client=client, format=MixedUnicodeBytesFormat())
 
+        class FlagTargetWithClient(target):
+            def __init__(self, path):
+                super().__init__(path, client=client, format=MixedUnicodeBytesFormat())
+
+
         self.client = client
         self.target = TargetWithClient
+        self.flag_target = FlagTargetWithClient
 
     def get_target(self):
         return self.target
+
+    def get_flag_target(self):
+        return self.flag_target
 
     def get_base_directory(self, prefix=''):
         """
