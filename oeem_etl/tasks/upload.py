@@ -8,6 +8,47 @@ import pandas as pd
 # TODO WHAT HAPPENS IF YOU CALL THIS TWICE? says it's done, why?
 # even when you update the code.
 
+class UploadProject(luigi.Task):
+    path = luigi.Parameter()
+    target = luigi.Parameter()
+    parser = luigi.Parameter()
+    datastore = luigi.Parameter()
+
+    def requires(self):
+        return ParseFile(self.path, self.target, self.parser)
+
+    def load_dataset(self):
+        df = pd.read_csv(self.input().open('r'),
+                dtype={"zipcode": str, "weather_station": str})
+        df.baseline_period_end = pd.to_datetime(df.baseline_period_end)
+        df.reporting_period_start = pd.to_datetime(df.reporting_period_start)
+        return df
+
+    def run(self):
+        parsed_project = self.load_dataset()
+        project_results = upload_project_dataframe(parsed_projects, self.datastore)
+
+class UploadConsumption(luigi.Task):
+    path = luigi.Parameter()
+    target = luigi.Parameter()
+    parser = luigi.Parameter()
+    datastore = luigi.Parameter()
+
+    def requires(self):
+        return ParseFile(self.path, self.target, self.parser)
+
+    def load_dataset(self):
+        df = pd.read_csv(self.input().open('r'),
+                dtype={"zipcode": str, "weather_station": str})
+        df.start = pd.to_datetime(df.start)
+        df.end = pd.to_datetime(df.end)
+        return df
+
+    def run(self):
+        parsed_consumption = self.load_dataset()
+        consumption_results = upload_consumption_dataframe(parsed_consumption, self.datastore)
+
+
 class UploadDatasets(luigi.Task):
     raw_project_paths = luigi.Parameter()
     raw_consumption_paths = luigi.Parameter()
@@ -18,11 +59,11 @@ class UploadDatasets(luigi.Task):
 
     def requires(self):
         parsed_projects = [
-            ParseFile(path, self.target, self.project_parser)
+            UploadProject(path, self.target, self.project_parser, self.datastore)
             for path in self.raw_project_paths
         ]
         parsed_consumption = [
-            ParseFile(path, self.target, self.consumption_parser)
+            UploadConsumption(path, self.target, self.consumption_parser, self.datastore)
             for path in self.raw_consumption_paths
         ]
         return {
@@ -30,30 +71,5 @@ class UploadDatasets(luigi.Task):
             'consumption': parsed_consumption
         }
 
-    def load_datasets(self, targets, dataset_type):
-        try:
-            return pd.concat([
-                pd.read_csv(target.open('r'),
-                            dtype={
-                                "zipcode": str,
-                                "weather_station": str,
-                            })
-                for target in targets[dataset_type]])
-        except ValueError:
-            # TODO: raise error?
-            print('No %s datasets to upload!' % dataset_type)  # TODO use logger
-
     def run(self):
-        # Load projects into DataFrame and convert date columns to datetimes.
-        parsed_projects = self.load_datasets(self.input(), 'projects')
-        parsed_projects.baseline_period_end = pd.to_datetime(parsed_projects.baseline_period_end)
-        parsed_projects.reporting_period_start = pd.to_datetime(parsed_projects.reporting_period_start)
-
-        # Load consumption records and convert date columns to datetimes.
-        parsed_consumption = self.load_datasets(self.input(), 'consumption')
-        parsed_consumption.start = pd.to_datetime(parsed_consumption.start)
-        parsed_consumption.end = pd.to_datetime(parsed_consumption.end)
-
-        # Upload parsed data to datastore.
-        project_results = upload_project_dataframe(parsed_projects, self.datastore)
-        consumption_results = upload_consumption_dataframe(parsed_consumption, self.datastore)
+        pass
