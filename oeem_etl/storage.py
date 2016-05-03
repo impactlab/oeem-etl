@@ -12,9 +12,9 @@ class StorageClient():
     def __init__(self, config):
         self.config = config
         self.storage_service = config['file_storage']
-        self._make_target()
+        self._make_target_classes()
 
-    def _make_target(self):
+    def _make_target_classes(self):
         '''Create client and target objects for storage service.'''
 
         if self.storage_service == 'local':
@@ -57,14 +57,14 @@ class StorageClient():
 
 
         self.client = client
-        self.target = TargetWithClient
-        self.flag_target = FlagTargetWithClient
+        self.target_class = TargetWithClient
+        self.flag_target_class = FlagTargetWithClient
 
-    def get_target(self):
-        return self.target
+    def get_target_class(self):
+        return self.target_class
 
-    def get_flag_target(self):
-        return self.flag_target
+    def get_flag_target_class(self):
+        return self.flag_target_class
 
     def get_base_directory(self, prefix=''):
         """

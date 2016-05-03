@@ -4,7 +4,7 @@ import luigi
 
 class File(luigi.ExternalTask):
     raw_file_path = luigi.Parameter()
-    target = luigi.Parameter()
+    target_class = luigi.Parameter()
 
     def output(self):
         return self.target(self.raw_file_path)
@@ -12,11 +12,11 @@ class File(luigi.ExternalTask):
 
 class ParseFile(luigi.Task):
     raw_file_path = luigi.Parameter()
-    target = luigi.Parameter()
+    target_class = luigi.Parameter()
     parser = luigi.Parameter()
 
     def requires(self):
-        return File(self.raw_file_path, self.target)
+        return File(self.raw_file_path, self.target_class)
 
     def run(self):
         raw_data = self.input().open('r')
@@ -43,4 +43,4 @@ class ParseFile(luigi.Task):
         # Parsed files should have the same filename as raw ones,
         # but placed in a sibling 'parsed' directory, and saved to csv.
         parsed_file_path = self._get_parsed_file_path(self.raw_file_path)
-        return self.target(parsed_file_path)
+        return self.target_class(parsed_file_path)
