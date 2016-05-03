@@ -4,49 +4,78 @@ import urllib
 import requests
 import logging
 import py
+from dateutil import parser
 import xml
 import xml.etree.cElementTree as etree
+import copy
 
-
-class GreenButtonAPI():
+class GreenButtonAppAPI():
     '''
     Get ESPI access tokens for utility customers who have authorized our
     acess through GreenButton.
     '''
 
-    def __init__(self, api_url, oauth_token):
-        self.api_url = api_url
+    def __init__(self, base_url, oauth_token):
+        self.base_url = base_url
         self.headers = {"Authorization": "Bearer {}".format(oauth_token)}
 
-    def fetch_client_customer_ids(self, client_id):
+    def get_client_customer_ids(self, client_id):
         '''
-        Get customer ids for customers of given client that
+        Get customer ids for customers of given client (by client_id) that
         have authorized us to get their energy data.
         '''
-        params = urllib.parse.urlencode({'oeeclient': client_id,
-                                         'has_active_refresh_token': True,
-                                         'id_only': True})
-        customers = requests.get(self.api_url, params=params,
-                                 headers=self.headers).json()
-        return [str(customer['id']) for customer in customers]
+        response = requests.get(
+                urllib.parse.urljoin(self.base_url, "/api/v1/pgecustomers/"),
+                params={
+                    'oeeclient': client_id,
+                    'has_active_refresh_token': True,
+                    'id_only': True,
+                },
+                headers=self.headers)
 
-    def client_customers(self, client_id):
+        if response.status_code == 200:
+            customers = response.json()
+        else:
+            raise ValueError(response)
+        return [str(c["id"]) for c in customers]
+
+    def get_customer_data(self, customer_id):
+        """
+        Returns raw customer data for a particular pge customer by pk.
+        """
+        customer_url = urllib.parse.urljoin(self.base_url,
+                "/api/v1/pgecustomers/{}".format(customer_id))
+        response = requests.get(customer_url, headers=self.headers)
+
+        if response.status_code == 200:
+            return response.json()
+        else:
+            raise ValueError(response)
+
+    def get_client_customer_data(self, client_id):
         '''
         Return Green Button access token, subscriber id, join date,
         and other info for all customers of given client.
         '''
-        # TODO REMOVE THE SLICE, its only for development
-        for customer_id in self.fetch_client_customer_ids(client_id):
-            customer_url = urllib.parse.urljoin(self.api_url, customer_id)
-            customer = requests.get(customer_url, headers=self.headers).json()
-            # Prevent ESPI API calls for customers with no access tokens.
-            if customer['active_access_token'] is not None:
-                out = {}
-                # Customer's subcription id lives in resource uri.
-                out['subscription_id'] = customer['resource_uri'].split('/')[-1]
-                out['project_id'] = customer['project_id']
-                out['access_token'] = customer['active_access_token']
-                yield out
+
+        for customer_id in self.get_client_customer_ids(client_id):
+
+            customer = self.get_customer_data(customer_id)
+
+            # Customer's subcription id lives in resource uri
+            # Use None if parse fails.
+            try:
+                subscription_id = customer['resource_uri'].split('/')[-1]
+            except AttributeError:
+                subscription_id = None
+
+            data = {
+                "subscription_id": subscription_id,
+                "access_token": customer["active_access_token"],
+                "project_id": customer["project_id"],
+            }
+
+            yield data
 
 
 class ESPICustomer():
@@ -57,17 +86,24 @@ class ESPICustomer():
     '''
 
     def __init__(self, customer_cred, config):
+
         # Customer attributes
         self.project_id = customer_cred['project_id']
         self.subscription_id = customer_cred['subscription_id']
         self.access_token = customer_cred['access_token']
+
         # Crosswalk for usage data parsing.
         self.usage_point_cat_to_fuel_type = {'0': ('electricity', 'kWh'),
                                              '1': ('natural_gas', 'therms')}
+
         # Bucket where client customer data lives.
-        self.bucket = config['bucket']
+        self.existing_paths = config['existing_paths']
+        self.base_directory = config['base_directory']
+
+
         # luigi Target class so we can read/write to paths.
-        self.target= config['target']
+        self.target = config['target']
+
         # ESPI API credentials.
         self.api_url = config['espi_api_url']
         self.cert = (config['cert_file'], config['privkey_file'])
@@ -121,13 +157,10 @@ class ESPICustomer():
         usage_point_xml = requests.get(subscription_url,
                                        headers=self._make_headers(self.access_token),
                                        cert=self.cert).text
-        try:
-            for usage_point_id, usage_point_cat \
-            in self._parse_usage_points(usage_point_xml):
-                yield usage_point_id, usage_point_cat
-        except xml.etree.ElementTree.ParseError:
-            print("Couldn't parse xml!")
-            print(usage_point_xml)
+
+        for usage_point_id, usage_point_cat \
+                in self._parse_usage_points(usage_point_xml):
+            yield usage_point_id, usage_point_cat
 
     def _parse_usage_points(self, usage_point_xml):
         '''
@@ -135,14 +168,23 @@ class ESPICustomer():
         ESPI API XML response.
         '''
         # Parse XML element tree.
-        root = etree.XML(usage_point_xml)
+        try:
+            root = etree.XML(usage_point_xml)
+        except xml.etree.ElementTree.ParseError as e:
+            print("Couldn't parse xml!")
+            print(usage_point_xml)
+            return
+
         # UsagePoint data is stored under entry elements in the Atom feed.
         for entry_tag in root.findall('{http://www.w3.org/2005/Atom}entry'):
+
             # UsagePoint id only provided in entry link elements.
             # Always grab it from the href attribute of the second link.
             usage_point_id = entry_tag.findall('{http://www.w3.org/2005/Atom}link')[1].attrib['href'].split('/')[-1]
+
             # Grab UsagePoint kind from the text inside entry.content.UsagePoint.ServiceCategory.kind
             usage_point_kind = entry_tag.find('.//{http://naesb.org/espi}kind').text
+
             yield usage_point_id, usage_point_kind
 
     def _fetch_usage_data(self, min_date, max_date):
@@ -162,7 +204,13 @@ class ESPICustomer():
         '''
         Parse EPSI usage XML data into format suitable for OEEM uploader.
         '''
-        root = etree.XML(usage_xml)  # Parse XML element tree.
+        try:
+            root = etree.XML(usage_xml)  # Parse XML element tree.
+        except xml.etree.ElementTree.ParseError as e:
+            print("Couldn't parse xml!")
+            print(usage_xml)
+            return []
+
         # IntervalReading elements house all energy data.
         reading_tag = './/{http://naesb.org/espi}IntervalReading'
         interval_readings = root.findall(reading_tag)
@@ -185,13 +233,18 @@ class ESPICustomer():
                 'fuel_type': fuel_type,
                 'unit_name': unit_name,
                 'value': value}
+
     def _find_reading_date_range(self, readings):
         '''
         Find the date range represents by a series of readings:
         the earliest min-date to the latest max-date.
         '''
-        min_start = readings[0]["start"]
-        max_end = readings[0]["end"]
+        try:
+            min_start = readings[0]["start"]
+            max_end = readings[0]["end"]
+        except IndexError:
+            return None, None
+
         for reading in readings:
             if reading['start'] < min_start:
                 min_start = reading['start']
@@ -209,19 +262,22 @@ class ESPICustomer():
         e.g. These are the paths to all the files we've downloaded of
         J Smith's gas usage.
         '''
-        for path in self.bucket:
+        for path in self.existing_paths:
+
             # Parse filename, see if it belongs to project-usage point.
             filename = os.path.basename(path)
-            path_project_id, path_up_id, run_num = filename.split('_')
+            path_project_id, path_usage_point_id, run_num = filename.split('_')
+
             if str(self.project_id) == path_project_id \
-               and str(self.usage_point_id) == path_up_id:
+               and str(self.usage_point_id) == path_usage_point_id:
                 yield path
 
     def _get_last_run_num(self, paths):
         '''
         Get the most recent run number for a set of usage file paths.
         NOTE: this function assumes the paths all belong to for a single
-        customer-usage point.'''
+        customer-usage point.
+        '''
         run_numbers = [self._path_to_run_num(path) for path in paths]
         return int(sorted(run_numbers)[-1])
 
@@ -233,6 +289,9 @@ class ESPICustomer():
         '''
         max_date_if_run_now = self._get_max_date_if_run_now()
         max_date_last_run = self._fetch_last_run_max_date()
+        if max_date_last_run is None \
+                or max_date_if_run_now is None:
+            return True
         return max_date_last_run < max_date_if_run_now
 
     def _get_max_date_if_run_now(self):
@@ -261,8 +320,9 @@ class ESPICustomer():
         filename = '{}_{}_{}.xml'.format(self.project_id,
                                          self.usage_point_id,
                                          last_run_num)
-        # TODO fix path
-        with self.target('gs://oeem-renew-financial-data/' + 'consumption/test/' + filename).open('r') as f:
+
+        path = os.path.join(self.base_directory, filename)
+        with self.target(path).open('r') as f:
             usage_xml = f.read()
 
         readings = self._parse_usage_data(usage_xml)
@@ -353,32 +413,16 @@ class ESPICustomer():
         of the parent EPSICustomer class, preloaded with different usage
         points, which affects the behavior of most core methods.
         '''
-        import copy
         for usage_point_id, usage_point_cat in self._fetch_usage_points():
+
             # Must return a copy of the instance with mutated usage
             # point fields, or luigi will end up creating all
-            #FetchCustomerUsage tasks for the customer with the same
+            # FetchCustomerUsage tasks for the customer with the same
             # final ESPICustomer instance.
-            customer_up = copy.copy(self)
-            customer_up.usage_point_id = usage_point_id
-            customer_up.usage_point_cat = usage_point_cat
-            yield customer_up
-
-    def __init__(self, customer_cred, config):
-        # Customer attributes
-        self.project_id = customer_cred['project_id']
-        self.subscription_id = customer_cred['subscription_id']
-        self.access_token = customer_cred['access_token']
-        # Crosswalk for usage data parsing.
-        self.usage_point_cat_to_fuel_type = {'0': ('electricity', 'kWh'),
-                                             '1': ('natural_gas', 'therms')}
-        # Bucket where client customer data lives.
-        self.bucket = config['bucket']
-        # luigi Target class so we can read/write to paths.
-        self.target= config['target']
-        # ESPI API credentials.
-        self.api_url = config['espi_api_url']
-        self.cert = (config['cert_file'], config['privkey_file'])
+            customer_usage_point = copy.copy(self)
+            customer_usage_point.usage_point_id = usage_point_id
+            customer_usage_point.usage_point_cat = usage_point_cat
+            yield customer_usage_point
 
 
     def should_run(self):
@@ -399,27 +443,36 @@ class ESPICustomer():
         print(self.run_num, should_run)
         return should_run
 
+
     def fetch_usage(self):
         '''
         Fetch usage for this customer-usage point, either last four years
         or only what's new since last fetch.
         '''
+
         # Figure out what date range to pull for this subscriber usage point.
         # Will download last 4 years for new customers, new data since
         # last download for existing customers.
         print('FETCHING ' + self.project_id + ' ' + self.usage_point_cat + ' ' + str(self.run_num))
+
         min_date = self._get_min_date()
         max_date = self._get_max_date()
+
         # Get the usage data.
         usage_xml = self._fetch_usage_data(min_date, max_date)
+
         # Find actual min and max date.
         readings = self._parse_usage_data(usage_xml)
+
         # Only proceed if you got readings back.
         if len(readings) > 0:
+
             actual_min_date, actual_max_date = self._find_reading_date_range(readings)
+
             # Log if we got back usage data for a different day than we asked for.
             self._check_dates(min_date, actual_min_date, 'min')
             self._check_dates(max_date, actual_max_date, 'max')
+
             # Return actual dates you got data back for, just in case
             # customer doesn't have data going all the way back, or
             # your max-date is earlier than you asked for because
@@ -429,3 +482,4 @@ class ESPICustomer():
             msg = 'No readings for {} {} from {} to {}'
             logging.warn(msg.format(self.subscription_id, self.usage_point_cat,
                                     min_date, max_date))
+            return None

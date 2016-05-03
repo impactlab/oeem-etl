@@ -7,7 +7,8 @@ import pandas as pd
 # TODO WHAT HAPPENS IF THIS CRASHES BEFORE BEING DONE
 # TODO WHAT HAPPENS IF YOU CALL THIS TWICE? says it's done, why?
 # even when you update the code.
-class UploadDatasets(luigi.WrapperTask):
+
+class UploadDatasets(luigi.Task):
     raw_project_paths = luigi.Parameter()
     raw_consumption_paths = luigi.Parameter()
     project_parser = luigi.Parameter()
@@ -16,18 +17,28 @@ class UploadDatasets(luigi.WrapperTask):
     datastore = luigi.Parameter()
 
     def requires(self):
-        parsed_projects = [ParseFile(path, self.target,
-                                     self.project_parser)
-                           for path in self.raw_project_paths]
-        parsed_consumption = [ParseFile(path, self.target,
-                                        self.consumption_parser)
-                              for path in self.raw_consumption_paths]
-        return {'projects': parsed_projects, 'consumption': parsed_consumption}
+        parsed_projects = [
+            ParseFile(path, self.target, self.project_parser)
+            for path in self.raw_project_paths
+        ]
+        parsed_consumption = [
+            ParseFile(path, self.target, self.consumption_parser)
+            for path in self.raw_consumption_paths
+        ]
+        return {
+            'projects': parsed_projects,
+            'consumption': parsed_consumption
+        }
 
     def load_datasets(self, targets, dataset_type):
         try:
-            return pd.concat([pd.read_csv(target.open('r'))
-                              for target in targets[dataset_type]])
+            return pd.concat([
+                pd.read_csv(target.open('r'),
+                            dtype={
+                                "zipcode": str,
+                                "weather_station": str,
+                            })
+                for target in targets[dataset_type]])
         except ValueError:
             # TODO: raise error?
             print('No %s datasets to upload!' % dataset_type)  # TODO use logger

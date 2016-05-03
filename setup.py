@@ -22,6 +22,9 @@ setup(
         'eemeter',
         'luigi',
         'boto',
+        'py',
+        'google-api-python-client',
+        'oauth2client',
     ],
     keywords='open energy efficiency meter etl espi greenbutton',
 )
