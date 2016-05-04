@@ -358,48 +358,31 @@ class ESPICustomer():
             # i.e. 06:59:59 (end of one day) -> 07:00:00 (start of next one)
             return self._get_max_date().replace(years=-4, seconds=+1)
 
-    def _get_max_date(self, current_datetime=arrow.utcnow(),
-                      end_day_hour=7, hour_data_updated=18):
+    def _get_max_date(self, current_datetime=arrow.utcnow(), end_day_hour=7):
         '''
-        Return the max date for which we can get data: either
-        yesterday's data, if it has been made available already,
-        or the previous day's data.
+        Return the max date for which we can get data: the day before
+        the day before yesterday's data, if it has been made available already.
 
+        TODO: make this daylight savings resilient...
+        TODO: check that a day of data always end at 0700,
+        regardless of time of year. (looks like it doesn't.. used to
+        end at 0800.)
         By default, assume that data was gathered in US/Pacific,
         so the max date for yesterday's data it today at 06:59 hours,
         since US/Pacific is usually UTC - 7 hours. Also,
         assume that data is made available 2 hours after
         day ends, by default.
 
-        TODO: make this daylight savings resilient...
-        TODO: check that a day of data always end at 0700,
-        regardless of time of year. (looks like it doesn't.. used to
-        end at 0800.)
-        TODO: double check when hour data is updated. (looks like it
-        doesn't all get updated at once, and not until sometime after 3pm..)
         '''
-        # Time today that yesterday's data is made available.
-        data_refresh_time = current_datetime.replace(hour=hour_data_updated,
-                                                     minute=0, second=0,
-                                                     microsecond=0)
-        # If yesterday's data has been made available...
-        if current_datetime > data_refresh_time:
-            # Return max date that will retrieve yesterday's data,
-            # likely uploaded this morning.
-            max_date = data_refresh_time.replace(hour=end_day_hour - 1,
-                                                 minute=59, second=59)
-            # ^^^ If you set max-date one second after this, ^^^
-            # you might get the next day.
-        # If it hasn't been made available yet...
-        else:
-            # Return max date for will retrieve the day before yesterday's data,
-            # likely uploaded yesterday.
-            max_date = data_refresh_time.replace(days=-1,
-                                                 hour=end_day_hour - 1,
-                                                 minute=59, second=59)
+        max_date = current_datetime.replace(days=-2,
+                                            hour=end_day_hour - 1,
+                                            minute=59, second=59,
+                                            microsecond=0)
         # Usage category 1 starts at 07:00:01, so set max date to 7:00:00.
         if self.usage_point_cat == '1':
             max_date = max_date.replace(seconds=+1)
+        print('HERE!!!')
+        print(max_date)
         return max_date
 
     ###############
@@ -456,6 +439,8 @@ class ESPICustomer():
         print('FETCHING ' + self.project_id + ' ' + self.usage_point_cat + ' ' + str(self.run_num))
 
         min_date = self._get_min_date()
+        print('HERE TOO!')
+        print(min_date)
         max_date = self._get_max_date()
 
         # Get the usage data.

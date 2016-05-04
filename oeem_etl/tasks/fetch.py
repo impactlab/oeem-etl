@@ -44,7 +44,7 @@ class FetchAllCustomers(luigi.WrapperTask):
         storage = StorageClient(config)
         config['base_directory'] = storage.get_base_directory('test/consumption/raw')
         config['existing_paths'] = storage.get_existing_paths('test/consumption/raw')
-        config['target'] = storage.get_target()
+        config['target'] = storage.get_target_class()
         return config
 
     def requires(self):
