@@ -123,9 +123,12 @@ class ESPICustomer():
         '''Make headers for EPSI data requests.'''
         return {"Authorization": "Bearer {}".format(access_token)}
 
+
     def _path_to_run_num(self, path):
         '''Extract the run number from a usage file path.'''
-        return py.path.local(path).purebasename.split('_')[-1]
+        run_num = py.path.local(path).purebasename.split('_')[-1]
+        # raise error if not file doesn't contain valid run num
+        return int(run_num)
 
     def _check_dates(self, request_date, response_date, date_type):
         '''Check whether the date your asked for is the date you got.'''
@@ -279,7 +282,7 @@ class ESPICustomer():
         customer-usage point.
         '''
         run_numbers = [self._path_to_run_num(path) for path in paths]
-        return int(sorted(run_numbers)[-1])
+        return sorted(run_numbers)[-1]
 
     def _should_run_now(self):
         '''
@@ -289,9 +292,6 @@ class ESPICustomer():
         '''
         max_date_if_run_now = self._get_max_date_if_run_now()
         max_date_last_run = self._fetch_last_run_max_date()
-        if max_date_last_run is None \
-                or max_date_if_run_now is None:
-            return True
         return max_date_last_run < max_date_if_run_now
 
     def _get_max_date_if_run_now(self):
