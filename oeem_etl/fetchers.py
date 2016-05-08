@@ -239,7 +239,7 @@ class ESPICustomer():
 
     def _find_reading_date_range(self, readings):
         '''
-        Find the date range represents by a series of readings:
+        Find the date range represented by a series of readings:
         the earliest min-date to the latest max-date.
         '''
         try:
@@ -266,11 +266,9 @@ class ESPICustomer():
         J Smith's gas usage.
         '''
         for path in self.existing_paths:
-
             # Parse filename, see if it belongs to project-usage point.
             filename = os.path.basename(path)
             path_project_id, path_usage_point_id, run_num = filename.split('_')
-
             if str(self.project_id) == path_project_id \
                and str(self.usage_point_id) == path_usage_point_id:
                 yield path
@@ -303,7 +301,6 @@ class ESPICustomer():
         max_date = self._get_max_date()
         usage_xml = self._fetch_usage_data(max_date.replace(days=-2, seconds=+1),
                                            max_date)
-        # TODO: make this single function?
         readings = self._parse_usage_data(usage_xml)
         actual_min_date, actual_max_date = self._find_reading_date_range(readings)
         return actual_max_date
@@ -367,6 +364,7 @@ class ESPICustomer():
         TODO: check that a day of data always end at 0700,
         regardless of time of year. (looks like it doesn't.. used to
         end at 0800.)
+
         By default, assume that data was gathered in US/Pacific,
         so the max date for yesterday's data it today at 06:59 hours,
         since US/Pacific is usually UTC - 7 hours. Also,
@@ -381,8 +379,6 @@ class ESPICustomer():
         # Usage category 1 starts at 07:00:01, so set max date to 7:00:00.
         if self.usage_point_cat == '1':
             max_date = max_date.replace(seconds=+1)
-        print('HERE!!!')
-        print(max_date)
         return max_date
 
     ###############
@@ -423,7 +419,6 @@ class ESPICustomer():
         else:
             self.run_num = self._get_last_run_num(previous_downloads) + 1
             should_run = self._should_run_now()
-        print(self.run_num, should_run)
         return should_run
 
 
@@ -436,11 +431,8 @@ class ESPICustomer():
         # Figure out what date range to pull for this subscriber usage point.
         # Will download last 4 years for new customers, new data since
         # last download for existing customers.
-        print('FETCHING ' + self.project_id + ' ' + self.usage_point_cat + ' ' + str(self.run_num))
 
         min_date = self._get_min_date()
-        print('HERE TOO!')
-        print(min_date)
         max_date = self._get_max_date()
 
         # Get the usage data.
