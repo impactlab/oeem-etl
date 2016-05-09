@@ -17,5 +17,14 @@ setup(
         'License :: OSI Approved :: MIT License',
         'Programming Language :: Python :: 3',
     ],
+    scripts=['bin/oeem-upload'],
+    install_requires=[
+        'eemeter',
+        'luigi',
+        'boto',
+        'py',
+        'google-api-python-client',
+        'oauth2client',
+    ],
     keywords='open energy efficiency meter etl espi greenbutton',
 )

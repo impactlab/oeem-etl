@@ -1,20 +1,46 @@
+import os
 import luigi
 
-class ParseS3toS3(luigi.Task):
-    aws_access_key_id = luigi.Parameter()
-    aws_secret_access_key = luigi.Parameter()
-    s3_key_input = luigi.Parameter()
-    s3_key_output = luigi.Parameter()
-    parser_callable = luigi.Parameter()
 
-    def input(self):
-        return luigi.s3.S3Target(self.s3_key_input, self._s3_client())
-
-    def run(self):
-        input_file = self.input()
+class File(luigi.ExternalTask):
+    raw_file_path = luigi.Parameter()
+    target_class = luigi.Parameter()
 
     def output(self):
-        return luigi.s3.S3Target(self.s3_key_output, self._s3_client())
+        return self.target(self.raw_file_path)
 
-    def _s3_client(self):
-        return luigi.s3.S3Client(self.aws_access_key_id, self.aws_secret_access_key)
+
+class ParseFile(luigi.Task):
+    raw_file_path = luigi.Parameter()
+    target_class = luigi.Parameter()
+    parser = luigi.Parameter()
+
+    def requires(self):
+        return File(self.raw_file_path, self.target_class)
+
+    def run(self):
+        raw_data = self.input().open('r')
+        with self.output().open('w') as f:
+            f.write(self.parser(self.raw_file_path, raw_data))
+
+    def _get_parsed_file_path(self, path):
+        '''
+        Create parsed file path that corresponds to raw file.
+
+        Example:
+        <client-bucket>/projects/raw/2015-06-01.xml
+        <client-bucket>/projects/parsed/2015-06-01.csv
+        '''
+        split_path = path.split('/')
+        # Change parent dir from 'raw' to 'parsed'.
+        split_path[-2] = 'parsed'
+        # Change file extension to csv.
+        filename = os.path.splitext(split_path[-1])[0]
+        split_path[-1] = filename + '.csv'
+        return '/'.join(split_path)
+
+    def output(self):
+        # Parsed files should have the same filename as raw ones,
+        # but placed in a sibling 'parsed' directory, and saved to csv.
+        parsed_file_path = self._get_parsed_file_path(self.raw_file_path)
+        return self.target_class(parsed_file_path)

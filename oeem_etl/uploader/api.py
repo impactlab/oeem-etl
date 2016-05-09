@@ -1,25 +1,28 @@
-from oeem_etl.uploader import uploaders, constants
+from oeem_etl.uploader import constants
 from oeem_etl.uploader.requester import Requester
 from datetime import date, datetime
-from eemeter.location import Location
-from eemeter.evaluation import Period
 from eemeter.consumption import ConsumptionData
-from eemeter.project import Project
+import dateutil.parser
 import pandas as pd
 import numpy as np
 import pytz
 import re
+import json
 
 __all__ = [
-    'upload_dicts',
-    'upload_csvs',
-    'upload_dataframes',
+    'upload_project_dicts',
+    'upload_consumption_dicts',
+
+    'upload_project_csv',
+    'upload_consumption_csv',
+
+    'upload_project_dataframe',
+    'upload_consumption_dataframe',
 ]
 
 
-def upload_dicts(project_dict, consumption_dict, url, access_token, project_owner, verbose=True):
-    """Uploads a set of formatted project and consumption data formatted as
-    dicts to a datastore instance.
+def upload_project_dicts(project_dict, url, access_token, project_owner):
+    """Uploads project data in python dict format to a datastore instance.
 
     Parameters
     ----------
@@ -41,6 +44,22 @@ def upload_dicts(project_dict, consumption_dict, url, access_token, project_owne
 
         Extra columns will be treated as project attributes.
 
+    url : str
+        URL of the target datastore, e.g. `https://datastore.openeemeter.org`
+    access_token : str
+        Access token for the target datastore.
+    project_owner : int
+        Primary key of project_owner for datastore.
+    """
+
+    df = pd.DataFrame(project_dict)
+    return upload_project_dataframe(df, url, access_token, project_owner)
+
+def upload_consumption_dicts(consumption_dict, url, access_token):
+    """Uploads project data in python dict format to a datastore instance.
+
+    Parameters
+    ----------
     consumption_dict : list of dicts
         List of dictionaries with contents something like the following::
 
@@ -61,21 +80,13 @@ def upload_dicts(project_dict, consumption_dict, url, access_token, project_owne
         URL of the target datastore, e.g. `https://datastore.openeemeter.org`
     access_token : str
         Access token for the target datastore.
-    project_owner : int
-        Primary key of project_owner for datastore.
-    verbose : bool, default: True
-        Whether or not to output a log of progress.
     """
 
-    project_df, consumption_df = _dicts_to_dataframes(project_dict,
-                                                      consumption_dict)
+    df = pd.DataFrame(consumption_dict)
+    return upload_consumption_dataframe(df, url, access_token)
 
-    upload_dataframes(project_df, consumption_df, url, access_token, project_owner, verbose)
-
-
-def upload_csvs(project_csv_file, consumption_csv_file, url, access_token, project_owner, verbose=True):
-    """Uploads a set of formatted project and consumption data formatted as
-    CSVs to a datastore instance.
+def upload_project_csv(project_csv_file, url, access_token, project_owner):
+    """Uploads project data in CSV format to a datastore instance.
 
     Parameters
     ----------
@@ -85,216 +96,152 @@ def upload_csvs(project_csv_file, consumption_csv_file, url, access_token, proje
             project_id,zipcode,weather_station,latitude,longitude,baseline_period_end,reporting_period_start
 
         Extra columns will be treated as project attributes.
-
-    consumption_dict : file object
-        File pointer to a CSV with the following columns::
-
-            project_id,start,end,fuel_type,unit_name,value,estimated
-
+    url : str
+        Base URL of the target datastore.
     access_token : str
         Access token for the target datastore.
     project_owner : int
         Primary key of project_owner for datastore.
-    verbose : bool, default: True
-        Whether or not to output a log of progress.
     """
 
-    project_df, consumption_df = _csvs_to_dataframes(project_csv_file,
-                                                     consumption_csv_file)
-
-    upload_dataframes(project_df, consumption_df, url, access_token, project_owner, verbose)
-
-def upload_dataframes2(project_df, consumption_df, url, access_token, project_owner, verbose=True):
-    """Uploads a set of formatted project and consumption data formatted as
-    CSVs to a datastore instance.
-
-    Parameters
-    ----------
-    project_df : pandas.DataFrame
-        File pointer to a CSV with the following columns::
-
-            project_id,zipcode,weather_station,latitude,longitude,baseline_period_end,reporting_period_start
-
-        Extra columns will be treated as project attributes.
-
-    consumption_dict : pandas.DataFrame
-        File pointer to a CSV with the following columns::
-
-            project_id,start,end,fuel_type,unit_name,value,estimated
-
-    access_token : str
-        Access token for the target datastore.
-    project_owner : int
-        Primary key of project_owner for datastore.
-    verbose : bool, default: True
-        Whether or not to output a log of progress.
-    """
-    requester = Requester(url, access_token)
-    project_attribute_key_uploader = uploaders.ProjectAttributeKeyUploader(requester, verbose)
-    project_uploader = uploaders.ProjectUploader(requester, verbose)
-    project_attribute_uploader = uploaders.ProjectAttributeUploader(requester, verbose)
-    consumption_metadata_uploader = uploaders.ConsumptionMetadataUploader(requester, verbose)
-    consumption_record_uploader = uploaders.ConsumptionRecordUploader(requester, verbose)
-
-    # project attribute keys
-    project_attribute_keys_data = _get_project_attribute_keys_data(project_df)
-    for data in project_attribute_keys_data:
-
-        # sync the project attribute keys
-        response_data = project_attribute_key_uploader.sync(data)
-
-        data.update(response_data) # adds the "id" field
-
-    project_ids = {}
-    for project_data, project_attributes_data in \
-            _get_project_data(project_df, project_attribute_keys_data):
-
-        # upload project
-        project_data["project_owner"] = project_owner
-        project_response_data = project_uploader.sync(project_data)
-
-        # store project_id to speed things up a bit in the consumption data uploading
-        project_id = project_response_data["project_id"]
-        project_pk = project_response_data["id"]
-        project_ids[project_pk] = project_id
-
-        for project_attribute_data in project_attributes_data:
-
-            # add the project pk to the project attribute data
-            project_attribute_data["project"] = project_pk
-
-            # sync the project attribute
-            project_attribute_data = project_attribute_uploader.sync(project_attribute_data)
-
-    for consumption_metadata_data, consumption_records_data in \
-            _get_consumption_data(consumption_df):
-
-        project_id = consumption_metadata_data.pop("project_id")
-
-        # find the project pk
-        if project_id in project_ids:
-            consumption_metadata_data["id"] = project_ids[project_id]
-        else:
-            project_data = {
-                "project_id": project_id,
-                "project_owner": project_owner,
-            }
-            project_response_data = project_uploader.sync(project_data)
-            consumption_metadata_data["project"] = project_response_data["id"]
-
-
-        consumption_metadata_response_data = consumption_metadata_uploader.sync(consumption_metadata_data)
-        consumption_metadata_id = consumption_metadata_response_data["id"]
-
-        for consumption_record_data in consumption_records_data:
-            consumption_record_data["metadata"] = consumption_metadata_id
-
-        consumption_records_response_data = consumption_record_uploader.bulk_sync(consumption_records_data)
-
-
-def upload_dataframes(project_df, consumption_df, url, access_token, project_owner, verbose=True):
-    """Uploads a set of formatted project and consumption data formatted as
-    CSVs to a datastore instance.
-
-    Parameters
-    ----------
-    project_df : pandas.DataFrame
-        File pointer to a CSV with the following columns::
-
-            project_id,zipcode,weather_station,latitude,longitude,baseline_period_end,reporting_period_start
-
-        Extra columns will be treated as project attributes.
-
-    consumption_dict : pandas.DataFrame
-        File pointer to a CSV with the following columns::
-
-            project_id,start,end,fuel_type,unit_name,value,estimated
-
-    access_token : str
-        Access token for the target datastore.
-    project_owner : int
-        Primary key of project_owner for datastore.
-    verbose : bool, default: True
-        Whether or not to output a log of progress.
-    """
-    requester = Requester(url, access_token)
-    project_attribute_key_uploader = uploaders.ProjectAttributeKeyUploader(requester, verbose)
-    project_uploader = uploaders.ProjectUploader(requester, verbose)
-    project_attribute_uploader = uploaders.ProjectAttributeUploader(requester, verbose)
-    consumption_metadata_uploader = uploaders.ConsumptionMetadataUploader(requester, verbose)
-    consumption_record_uploader = uploaders.ConsumptionRecordUploader(requester, verbose)
-
-    # project attribute keys
-    project_attribute_keys_data = _get_project_attribute_keys_data(project_df)
-    for data in project_attribute_keys_data:
-
-        # sync the project attribute keys
-        response_data = project_attribute_key_uploader.sync(data)
-
-        data.update(response_data) # adds the "id" field
-
-    project_ids = {}
-    for project_data, project_attributes_data in \
-            _get_project_data(project_df, project_attribute_keys_data):
-
-        # upload project
-        project_data["project_owner"] = project_owner
-        project_response_data = project_uploader.sync(project_data)
-
-        # store project_id to speed things up a bit in the consumption data uploading
-        project_id = project_response_data["project_id"]
-        project_pk = project_response_data["id"]
-        project_ids[project_pk] = project_id
-
-        for project_attribute_data in project_attributes_data:
-
-            # add the project pk to the project attribute data
-            project_attribute_data["project"] = project_pk
-
-            # sync the project attribute
-            project_attribute_data = project_attribute_uploader.sync(project_attribute_data)
-
-    for consumption_metadata_data, consumption_records_data in \
-            _get_consumption_data(consumption_df):
-
-        project_id = consumption_metadata_data.pop("project_id")
-
-        # find the project pk
-        if project_id in project_ids:
-            consumption_metadata_data["id"] = project_ids[project_id]
-        else:
-            project_data = {
-                "project_id": project_id,
-                "project_owner": project_owner,
-            }
-            project_response_data = project_uploader.sync(project_data)
-            consumption_metadata_data["project"] = project_response_data["id"]
-
-
-        consumption_metadata_response_data = consumption_metadata_uploader.sync(consumption_metadata_data)
-        consumption_metadata_id = consumption_metadata_response_data["id"]
-
-        for consumption_record_data in consumption_records_data:
-            consumption_record_data["metadata"] = consumption_metadata_id
-
-        consumption_records_response_data = consumption_record_uploader.sync(consumption_records_data)
-
-
-def _dicts_to_dataframes(project_dict, consumption_dict):
-    project_df = pd.DataFrame(project_dict)
-    consumption_df = pd.DataFrame(consumption_dict)
-    return project_df, consumption_df
-
-def _csvs_to_dataframes(project_csv, consumption_csv):
-    project_df = pd.read_csv(project_csv)
+    project_df = pd.read_csv(project_csv_file)
     project_df.baseline_period_end = pd.to_datetime(project_df.baseline_period_end)
     project_df.reporting_period_start = pd.to_datetime(project_df.reporting_period_start)
-    consumption_df = pd.read_csv(consumption_csv, dtype={'value': np.float})
+    return upload_project_dataframe(project_df, url, access_token, project_owner)
+
+def upload_consumption_csv(consumption_csv_file, url, access_token):
+    """Uploads consumption data in CSV format to a datastore instance.
+
+    Parameters
+    ----------
+    consumption_csv_file : file object
+        File pointer to a CSV with the following columns::
+
+            project_id,start,end,fuel_type,unit_name,value,estimated
+
+        Extra columns will be treated as project attributes.
+    url : str
+        Base URL of the target datastore.
+    access_token : str
+        Access token for the target datastore.
+    """
+
+    consumption_df = pd.read_csv(consumption_csv_file, dtype={'value': np.float})
     consumption_df.start = pd.to_datetime(consumption_df.start)
     consumption_df.end = pd.to_datetime(consumption_df.end)
-    return project_df, consumption_df
+    return upload_consumption_dataframe(consumption_df, url, access_token)
+
+def upload_project_dataframe(project_df, datastore):
+    """Uploads project data in pandas DataFrame format to a datastore instance.
+
+    Parameters
+    ----------
+    project_df : pandas.DataFrame
+        DataFrame with the following columns::
+
+            project_id,zipcode,weather_station,latitude,longitude,baseline_period_end,reporting_period_start
+
+        Extra columns will be treated as project attributes.
+    url : str
+        Base URL of the target datastore.
+    access_token : str
+        Access token for the target datastore.
+    project_owner : int
+        Primary key of project_owner for datastore.
+    """
+    requester = Requester(datastore['url'], datastore['access_token'])
+
+    project_attribute_key_records = _get_project_attribute_keys_data(project_df)
+
+    project_records = []
+    project_attribute_records = []
+    for project_data, project_attributes_data in \
+            _get_project_data(project_df, project_attribute_key_records):
+
+        project_data["project_owner_id"] = datastore['project_owner']
+        project_records.append(project_data)
+        project_attribute_records.extend(project_attributes_data)
+
+    project_attribute_key_responses = _bulk_sync(requester, project_attribute_key_records,
+            constants.PROJECT_ATTRIBUTE_KEY_SYNC_URL, 2000)
+
+    project_responses = _bulk_sync(requester, project_records,
+            constants.PROJECT_SYNC_URL, 1000)
+
+    project_attribute_responses = _bulk_sync(requester, project_attribute_records,
+            constants.PROJECT_ATTRIBUTE_SYNC_URL, 2000)
+
+    return {
+        "projects": project_responses,
+        "project_attribute_keys": project_attribute_key_responses,
+        "project_attributes": project_attribute_responses,
+    }
+
+def upload_consumption_dataframe(consumption_df, datastore):
+    """Uploads consumption data in pandas DataFrame format to a datastore instance.
+
+    Parameters
+    ----------
+    consumption_df : pandas.DataFrame
+        DataFrame with the following columns::
+
+            project_id,start,end,fuel_type,unit_name,value,estimated
+
+    url : str
+        Base URL of the target datastore.
+    access_token : str
+        Access token for the target datastore.
+    """
+    requester = Requester(datastore['url'], datastore['access_token'])
+
+    consumption_metadata_records = []
+    consumption_record_records = []
+    for consumption_metadata_data, consumption_records_data in \
+            _get_consumption_data(consumption_df):
+        consumption_metadata_records.append(consumption_metadata_data)
+        consumption_record_records.extend(consumption_records_data)
+
+    consumption_metadata_responses = _bulk_sync(requester, consumption_metadata_records,
+            constants.CONSUMPTION_METADATA_SYNC_URL, 2000)
+
+    consumption_record_responses = _bulk_sync(requester, consumption_record_records,
+            constants.CONSUMPTION_RECORD_SYNC_URL, 3000)
+
+    return {
+        "consumption_metadatas": consumption_metadata_responses,
+        "consumption_records": consumption_record_responses,
+    }
+
+
+def _bulk_sync(requester, records, url, n):
+    """ Syncs records using a sync endpoint on the datastore by batching in
+    groups of n and collecting responses.
+    """
+    responses = []
+    n_records = len(records)
+    for i in range(0, n_records, n):
+        batch = records[i:i+n]
+        response = requester.post(url, batch)
+        json_response = response.json()
+
+        if len(json_response) > 0:
+            try:
+                sample_response = json_response[0]
+            except:
+                print(json_response)
+                raise
+            else:
+                n_ = min(n_records, i+n)
+                print("Synced {} of {}".format(n_, n_records))
+                print("    Sample response: {}".format(sample_response))
+
+        responses.extend(json_response)
+    return responses
+
 
 def _get_project_attribute_keys_data(project_df):
+    """ Gets project attribute keys by looking at extra columns in dataframe.
+    """
 
     project_attribute_keys_data = []
     for column_name in project_df.columns:
@@ -318,6 +265,9 @@ def _get_project_attribute_keys_data(project_df):
     return project_attribute_keys_data
 
 def _infer_project_attribute_key_data(column_name, column):
+    """ Infers project attribute data including display name and datatype from
+    dataframe column and column name.
+    """
     project_attribute_key_data = {
         "name": column_name,
         "display_name": _infer_display_name(column_name),
@@ -326,6 +276,8 @@ def _infer_project_attribute_key_data(column_name, column):
     return project_attribute_key_data
 
 def _infer_data_type(column):
+    """ Infers datatype from pandas column type and format of first few rows.
+    """
     if column.shape[0] == 0:
         return None
 
@@ -349,6 +301,8 @@ def _infer_data_type(column):
         return None
 
 def _infer_display_name(column_name):
+    """ Gets nicely capitalized display name from name.
+    """
     # first standardize to underscored_column_name
     s1 = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', column_name)
     underscored = re.sub('([a-z0-9])([A-Z])', r'\1_\2', s1).lower()
@@ -358,18 +312,32 @@ def _infer_display_name(column_name):
     return display_name
 
 def _get_project_data(project_df, project_attribute_keys_data):
+    """ Yields a project record and project attribute records grouped by project
+    """
     for i, row in project_df.iterrows():
         project_data = {
             "project_id": row.project_id,
-            "zipcode": row.zipcode,
-            "weather_station": row.weather_station,
-            "latitude": row.latitude,
-            "longitude": row.longitude,
+            "zipcode": str(row.zipcode) if pd.notnull(row.zipcode) else None,
+            "weather_station": str(row.weather_station) if pd.notnull(row.weather_station) else None,
+            "latitude": row.latitude if pd.notnull(row.latitude) else None,
+            "longitude": row.longitude if pd.notnull(row.longitude) else None,
             "baseline_period_start": None,
-            "baseline_period_end": pytz.UTC.localize(row.baseline_period_end).strftime("%Y-%m-%dT%H:%M:%S%z"),
-            "reporting_period_start": pytz.UTC.localize(row.reporting_period_start).strftime("%Y-%m-%dT%H:%M:%S%z"),
             "reporting_period_end": None,
         }
+
+        assert pd.notnull(project_data["project_id"])
+
+        baseline_period_end_localized = pytz.UTC.localize(row.baseline_period_end)
+        if pd.isnull(baseline_period_end_localized):
+            project_data["baseline_period_end"] = None
+        else:
+            project_data["baseline_period_end"] = baseline_period_end_localized.strftime("%Y-%m-%dT%H:%M:%S%z")
+
+        reporting_period_start_localized = pytz.UTC.localize(row.reporting_period_start)
+        if pd.isnull(reporting_period_start_localized):
+            project_data["reporting_period_start"] = None
+        else:
+            project_data["reporting_period_start"] = reporting_period_start_localized.strftime("%Y-%m-%dT%H:%M:%S%z")
 
         project_attributes_data = []
         for project_attribute_key_data in project_attribute_keys_data:
@@ -379,41 +347,30 @@ def _get_project_data(project_df, project_attribute_keys_data):
         yield project_data, project_attributes_data
 
 def _get_project_attribute_data(row, project_attribute_key_data):
+    """ Gets a single formatted project attribute record
+    """
 
     name = project_attribute_key_data["name"]
-    data_type = project_attribute_key_data["data_type"]
+    value = row[name]
 
     project_attribute_data = {
-        "key": project_attribute_key_data["id"],
+        "project_project_id": row["project_id"],
+        "project_attribute_key_name": name,
+        "value": value if pd.notnull(value) else None,
     }
-
-    if data_type == "BOOLEAN":
-        project_attribute_data["boolean_value"] = (row[name] == "True")
-    elif data_type == "CHAR":
-        project_attribute_data["char_value"] = row[name]
-    elif data_type == "DATE":
-        project_attribute_data["date_value"] = row[name]
-    elif data_type == "DATETIME":
-        # check format, but keep as string
-        dt = datetime.strptime(row[name], "%Y-%m-%dT%H:%M:%S%z")
-        project_attribute_data["datetime_value"] = row[name]
-    elif data_type == "FLOAT":
-        project_attribute_data["float_value"] = float(row[name])
-    elif data_type == "INTEGER":
-        project_attribute_data["integer_value"] = int(row[name])
-    else:
-        raise NotImplementedError
 
     return project_attribute_data
 
 def _get_consumption_data(consumption_df):
+    """ Yields consumption records and metadata grouped by project and fuel type
+    """
     for project_id, project_consumption in consumption_df.groupby("project_id"):
         for fuel_type, fuel_type_consumption in project_consumption.groupby("fuel_type"):
             unique_unit_names = fuel_type_consumption.unit_name.unique()
             assert unique_unit_names.shape[0] == 1
 
             consumption_metadata_data = {
-                "project_id": project_id,
+                "project_project_id": project_id,
                 "fuel_type": constants.FUEL_TYPES[fuel_type],
                 "energy_unit": constants.ENERGY_UNIT[unique_unit_names[0]],
             }
@@ -423,6 +380,7 @@ def _get_consumption_data(consumption_df):
             yield consumption_metadata_data, consumption_records_data
 
 def _get_consumption_records_data(consumption_df):
+    """ Get consumption records from single project_id/fuel_type group. """
     raw_consumption_records_data = _get_raw_consumption_records_data(
             consumption_df)
     consumption_records_data = _process_raw_consumption_records_data(
@@ -430,9 +388,12 @@ def _get_consumption_records_data(consumption_df):
     return consumption_records_data
 
 def _get_raw_consumption_records_data(consumption_df):
+    """ Get raw consumption records from single project_id/fuel_type group. """
     raw_consumption_records_data = []
     for i, row in consumption_df.iterrows():
         consumption_record_data = {
+            "project_id": row.project_id,
+            "fuel_type": constants.FUEL_TYPES[row.fuel_type],
             "start": row.start,
             "end": row.end,
             "value": row.value,
@@ -442,12 +403,17 @@ def _get_raw_consumption_records_data(consumption_df):
     return raw_consumption_records_data
 
 def _process_raw_consumption_records_data(records):
+    """ Turn records into "start" oriented records, make UTC. """
+
+    # assume all from the same project and fuel_type
+    if len(records) > 0:
+        project_id = records[0]["project_id"]
+        fuel_type = records[0]["fuel_type"]
 
     # dumb hack - the fuel_type and unit_name are actually just placeholders
     # and don't actually affect the processing. This an indication that (TODO),
     # this logic should be factored out of the ConsumptionData object.
-    fuel_type, unit_name = "electricity", "kWh"
-    consumption_data = ConsumptionData(records, fuel_type, unit_name,
+    consumption_data = ConsumptionData(records, "electricity", "kWh",
                                        record_type="arbitrary")
 
     consumption_records_data = []
@@ -455,7 +421,9 @@ def _process_raw_consumption_records_data(records):
         assert d1 == d2
         record = {
             "start": pytz.UTC.localize(d1.to_datetime()).strftime("%Y-%m-%dT%H:%M:%S%z"),
-            "value": value,
+            "project_id": project_id,
+            "fuel_type": fuel_type,
+            "value": value if pd.notnull(value) else None,
             "estimated": bool(estimated),
         }
         consumption_records_data.append(record)

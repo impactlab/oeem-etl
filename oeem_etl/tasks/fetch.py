@@ -1,18 +1,67 @@
+import yaml
 import luigi
 
-class FetchGreenButtontoS3(luigi.Task):
+from ..fetchers import GreenButtonAppAPI
+from ..fetchers import ESPICustomer
+from ..storage import StorageClient
 
-    aws_access_key_id = luigi.Parameter()
-    aws_secret_access_key = luigi.Parameter()
-    s3_key_output = luigi.Parameter()
-    start_date = luigi.Parameter()
-    end_date = luigi.Parameter()
+
+class FetchCustomerUsage(luigi.Task):
+    customer_usage_point = luigi.Parameter()
 
     def run(self):
-        import pdb; pdb.set_trace()
+        xml = self.customer_usage_point.fetch_usage()
+        with self.output().open('w') as f:
+            f.write(xml)
 
     def output(self):
-        return luigi.s3.S3Target(self.s3_key_output, self._s3_client())
+        filename = '{}_{}_{}.xml'.format(self.customer_usage_point.project_id,
+                                         self.customer_usage_point.usage_point_id,
+                                         self.customer_usage_point.run_num)
 
-    def _s3_client(self):
-        return luigi.s3.S3Client(self.aws_access_key_id, self.aws_secret_access_key)
+        return self.customer_usage_point.target(self.customer_usage_point.base_directory + filename)
+
+
+class FetchAllCustomers(luigi.WrapperTask):
+    config_path = luigi.Parameter(description="Path to settings")
+
+    def _get_customer_auths(self, config):
+        gb_client = GreenButtonAppAPI(config['green_button_api_url'],
+                                      config['green_button_api_token'])
+
+        client_customer_data = gb_client.get_client_customer_data(
+                config['green_button_api_client_id'])
+
+        customers_with_tokens = [
+            customer for customer in client_customer_data
+            if customer['access_token'] is not None
+        ]
+
+        return customers_with_tokens
+
+    def _load_config(self, config_path):
+        config = yaml.load(open(config_path, 'r').read())
+        storage = StorageClient(config)
+        config['base_directory'] = storage.get_base_directory('test/consumption/raw')
+        config['existing_paths'] = storage.get_existing_paths('test/consumption/raw')
+        config['target'] = storage.get_target()
+        return config
+
+    def requires(self):
+
+        # adds a target using StorageClient class
+        config = self._load_config(self.config_path)
+
+        fetch_tasks = []
+        for customer_cred in self._get_customer_auths(config):
+            customer = ESPICustomer(customer_cred, config)
+            for customer_usage_point in customer.usage_points():
+
+                print(customer_usage_point.project_id)
+                print(customer_usage_point.usage_point_id)
+
+                if customer_usage_point.should_run():
+                    task = FetchCustomerUsage(customer_usage_point)
+                    fetch_tasks.append(task)
+
+        return fetch_tasks
