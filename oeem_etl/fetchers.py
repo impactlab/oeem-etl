@@ -123,9 +123,12 @@ class ESPICustomer():
         '''Make headers for EPSI data requests.'''
         return {"Authorization": "Bearer {}".format(access_token)}
 
+
     def _path_to_run_num(self, path):
         '''Extract the run number from a usage file path.'''
-        return py.path.local(path).purebasename.split('_')[-1]
+        run_num = py.path.local(path).purebasename.split('_')[-1]
+        # raise error if not file doesn't contain valid run num
+        return int(run_num)
 
     def _check_dates(self, request_date, response_date, date_type):
         '''Check whether the date your asked for is the date you got.'''
@@ -236,7 +239,7 @@ class ESPICustomer():
 
     def _find_reading_date_range(self, readings):
         '''
-        Find the date range represents by a series of readings:
+        Find the date range represented by a series of readings:
         the earliest min-date to the latest max-date.
         '''
         try:
@@ -263,11 +266,9 @@ class ESPICustomer():
         J Smith's gas usage.
         '''
         for path in self.existing_paths:
-
             # Parse filename, see if it belongs to project-usage point.
             filename = os.path.basename(path)
             path_project_id, path_usage_point_id, run_num = filename.split('_')
-
             if str(self.project_id) == path_project_id \
                and str(self.usage_point_id) == path_usage_point_id:
                 yield path
@@ -279,7 +280,7 @@ class ESPICustomer():
         customer-usage point.
         '''
         run_numbers = [self._path_to_run_num(path) for path in paths]
-        return int(sorted(run_numbers)[-1])
+        return sorted(run_numbers)[-1]
 
     def _should_run_now(self):
         '''
@@ -289,9 +290,6 @@ class ESPICustomer():
         '''
         max_date_if_run_now = self._get_max_date_if_run_now()
         max_date_last_run = self._fetch_last_run_max_date()
-        if max_date_last_run is None \
-                or max_date_if_run_now is None:
-            return True
         return max_date_last_run < max_date_if_run_now
 
     def _get_max_date_if_run_now(self):
@@ -303,7 +301,6 @@ class ESPICustomer():
         max_date = self._get_max_date()
         usage_xml = self._fetch_usage_data(max_date.replace(days=-2, seconds=+1),
                                            max_date)
-        # TODO: make this single function?
         readings = self._parse_usage_data(usage_xml)
         actual_min_date, actual_max_date = self._find_reading_date_range(readings)
         return actual_max_date
@@ -358,12 +355,10 @@ class ESPICustomer():
             # i.e. 06:59:59 (end of one day) -> 07:00:00 (start of next one)
             return self._get_max_date().replace(years=-4, seconds=+1)
 
-    def _get_max_date(self, current_datetime=arrow.utcnow(),
-                      end_day_hour=7, hour_data_updated=18):
+    def _get_max_date(self, current_datetime=arrow.utcnow(), end_day_hour=7):
         '''
-        Return the max date for which we can get data: either
-        yesterday's data, if it has been made available already,
-        or the previous day's data.
+        Return the max date for which we can get data: the day before
+        the day before yesterday's data, if it has been made available already.
 
         By default, assume that data was gathered in US/Pacific,
         so the max date for yesterday's data it today at 06:59 hours,
@@ -371,32 +366,17 @@ class ESPICustomer():
         assume that data is made available 2 hours after
         day ends, by default.
 
-        TODO: make this daylight savings resilient...
-        TODO: check that a day of data always end at 0700,
-        regardless of time of year. (looks like it doesn't.. used to
-        end at 0800.)
-        TODO: double check when hour data is updated. (looks like it
-        doesn't all get updated at once, and not until sometime after 3pm..)
+        TODO: make this daylight savings resilient... this code
+        assumes that a "day of data" always end at 0700,
+        regardless of time of year. this won't be true across
+        ESPI APIs, and it isn't even true for a single utility because
+        of daylight savings times. Looking at earlier PG&E data, it used to end
+        at 0800.
         '''
-        # Time today that yesterday's data is made available.
-        data_refresh_time = current_datetime.replace(hour=hour_data_updated,
-                                                     minute=0, second=0,
-                                                     microsecond=0)
-        # If yesterday's data has been made available...
-        if current_datetime > data_refresh_time:
-            # Return max date that will retrieve yesterday's data,
-            # likely uploaded this morning.
-            max_date = data_refresh_time.replace(hour=end_day_hour - 1,
-                                                 minute=59, second=59)
-            # ^^^ If you set max-date one second after this, ^^^
-            # you might get the next day.
-        # If it hasn't been made available yet...
-        else:
-            # Return max date for will retrieve the day before yesterday's data,
-            # likely uploaded yesterday.
-            max_date = data_refresh_time.replace(days=-1,
-                                                 hour=end_day_hour - 1,
-                                                 minute=59, second=59)
+        max_date = current_datetime.replace(days=-2,
+                                            hour=end_day_hour - 1,
+                                            minute=59, second=59,
+                                            microsecond=0)
         # Usage category 1 starts at 07:00:01, so set max date to 7:00:00.
         if self.usage_point_cat == '1':
             max_date = max_date.replace(seconds=+1)
@@ -440,7 +420,6 @@ class ESPICustomer():
         else:
             self.run_num = self._get_last_run_num(previous_downloads) + 1
             should_run = self._should_run_now()
-        print(self.run_num, should_run)
         return should_run
 
 
@@ -453,7 +432,6 @@ class ESPICustomer():
         # Figure out what date range to pull for this subscriber usage point.
         # Will download last 4 years for new customers, new data since
         # last download for existing customers.
-        print('FETCHING ' + self.project_id + ' ' + self.usage_point_cat + ' ' + str(self.run_num))
 
         min_date = self._get_min_date()
         max_date = self._get_max_date()
