@@ -360,17 +360,18 @@ class ESPICustomer():
         Return the max date for which we can get data: the day before
         the day before yesterday's data, if it has been made available already.
 
-        TODO: make this daylight savings resilient...
-        TODO: check that a day of data always end at 0700,
-        regardless of time of year. (looks like it doesn't.. used to
-        end at 0800.)
-
         By default, assume that data was gathered in US/Pacific,
         so the max date for yesterday's data it today at 06:59 hours,
         since US/Pacific is usually UTC - 7 hours. Also,
         assume that data is made available 2 hours after
         day ends, by default.
 
+        TODO: make this daylight savings resilient... this code
+        assumes that a "day of data" always end at 0700,
+        regardless of time of year. this won't be true across
+        ESPI APIs, and it isn't even true for a single utility because
+        of daylight savings times. Looking at earlier PG&E data, it used to end
+        at 0800.
         '''
         max_date = current_datetime.replace(days=-2,
                                             hour=end_day_hour - 1,

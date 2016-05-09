@@ -56,10 +56,6 @@ class FetchAllCustomers(luigi.WrapperTask):
         for customer_cred in self._get_customer_auths(config):
             customer = ESPICustomer(customer_cred, config)
             for customer_usage_point in customer.usage_points():
-
-                print(customer_usage_point.project_id)
-                print(customer_usage_point.usage_point_id)
-
                 if customer_usage_point.should_run():
                     task = FetchCustomerUsage(customer_usage_point)
                     fetch_tasks.append(task)
