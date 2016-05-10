@@ -7,7 +7,7 @@ class File(luigi.ExternalTask):
     target_class = luigi.Parameter()
 
     def output(self):
-        return self.target(self.raw_file_path)
+        return self.target_class(self.raw_file_path)
 
 
 class ParseFile(luigi.Task):

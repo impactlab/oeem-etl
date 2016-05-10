@@ -91,7 +91,7 @@ class UploadConsumption(luigi.Task):
     def output(self):
         return self.flag_target_class(self._get_uploaded_file_path())
 
-class UploadDatasets(luigi.Task):
+class UploadDatasets(luigi.WrapperTask):
     raw_project_paths = luigi.Parameter()
     raw_consumption_paths = luigi.Parameter()
     project_parser = luigi.Parameter()
@@ -114,6 +114,3 @@ class UploadDatasets(luigi.Task):
 
         # Is there any guarantee of ordering here?
         return [parsed_projects, parsed_consumption]
-
-    def run(self):
-        pass
