@@ -47,13 +47,19 @@ class StorageClient():
         # Subclass the chosen Target and add the Client to it, so
         # you don't have to pass the Client to the DAG.
 
+        init_kwargs = {
+            'format': MixedUnicodeBytesFormat()
+        }
+        if self.storage_service != 'local':
+            kwargs['client'] = client
+
         class TargetWithClient(target):
             def __init__(self, path):
-                super(TargetWithClient, self).__init__(path, format=MixedUnicodeBytesFormat())
+                super(TargetWithClient, self).__init__(path, **init_kwargs)
 
         class FlagTargetWithClient(flag_target):
             def __init__(self, path):
-                super(FlagTargetWithClient, self).__init__(path, format=MixedUnicodeBytesFormat())
+                super(FlagTargetWithClient, self).__init__(path, **init_kwargs)
 
 
         self.client = client
