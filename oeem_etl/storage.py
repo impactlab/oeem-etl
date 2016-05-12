@@ -49,11 +49,11 @@ class StorageClient():
 
         class TargetWithClient(target):
             def __init__(self, path):
-                super().__init__(path, client=client, format=MixedUnicodeBytesFormat())
+                super(TargetWithClient, self).__init__(path, format=MixedUnicodeBytesFormat())
 
-        class FlagTargetWithClient(target):
+        class FlagTargetWithClient(flag_target):
             def __init__(self, path):
-                super().__init__(path, client=client, format=MixedUnicodeBytesFormat())
+                super(FlagTargetWithClient, self).__init__(path, format=MixedUnicodeBytesFormat())
 
 
         self.client = client
