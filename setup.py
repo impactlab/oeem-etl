@@ -25,6 +25,7 @@ setup(
         'py',
         'google-api-python-client',
         'oauth2client',
+        'requests>=2.10.0'
     ],
     keywords='open energy efficiency meter etl espi greenbutton',
 )
