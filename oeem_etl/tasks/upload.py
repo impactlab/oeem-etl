@@ -5,6 +5,8 @@ from ..uploader import upload_project_dataframe, upload_consumption_dataframe
 import pandas as pd
 import os
 
+from .shared import mangle_path
+
 class UploadProject(luigi.Task):
     path = luigi.Parameter()
     target_class = luigi.Parameter()
@@ -23,7 +25,8 @@ class UploadProject(luigi.Task):
         return df
 
     def write_flag(self):
-        target = self.target_class(os.path.join(self._get_uploaded_file_path(), "_SUCCESS"))
+        uploaded_path = mangle_path(self.path, 'raw', 'uploaded')
+        target = self.target_class(os.path.join(uploaded_path, "_SUCCESS"))
         with target.open('w') as f:
             pass
 
@@ -32,21 +35,9 @@ class UploadProject(luigi.Task):
         project_results = upload_project_dataframe(parsed_project, self.datastore)
         self.write_flag()
 
-    def _get_uploaded_file_path(self):
-        split_path = self.path.split('/')
-
-        # Change parent dir from 'raw' to 'uploaded'.
-        split_path[-2] = 'uploaded'
-
-        # Drop file extension
-        filename = os.path.splitext(split_path[-1])[0]
-
-        split_path[-1] = filename
-        split_path.append("") # trailing slash
-        return '/'.join(split_path)
-
     def output(self):
-        return self.flag_target_class(self._get_uploaded_file_path())
+        uploaded_path = mangle_path(self.path, 'raw', 'uploaded')
+        return self.flag_target_class(uploaded_path)
 
 class UploadConsumption(luigi.Task):
     path = luigi.Parameter()
@@ -66,7 +57,8 @@ class UploadConsumption(luigi.Task):
         return df
 
     def write_flag(self):
-        target = self.target_class(os.path.join(self._get_uploaded_file_path(), "_SUCCESS"))
+        uploaded_path = mangle_path(self.path, 'raw', 'uploaded')
+        target = self.target_class(os.path.join(uploaded_path, "_SUCCESS"))
         with target.open('w') as f:
             pass
 
@@ -75,21 +67,9 @@ class UploadConsumption(luigi.Task):
         consumption_results = upload_consumption_dataframe(parsed_consumption, self.datastore)
         self.write_flag()
 
-    def _get_uploaded_file_path(self):
-        split_path = self.path.split('/')
-
-        # Change parent dir from 'raw' to 'uploaded'.
-        split_path[-2] = 'uploaded'
-
-        # Drop file extension
-        filename = os.path.splitext(split_path[-1])[0]
-
-        split_path[-1] = filename
-        split_path.append("") # trailing slash
-        return '/'.join(split_path)
-
     def output(self):
-        return self.flag_target_class(self._get_uploaded_file_path())
+        uploaded_path = mangle_path(self.path, 'raw', 'uploaded')
+        return self.flag_target_class(uploaded_path)
 
 class UploadDatasets(luigi.WrapperTask):
     raw_project_paths = luigi.Parameter()
