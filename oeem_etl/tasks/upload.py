@@ -36,7 +36,7 @@ class UploadProject(luigi.Task):
         self.write_flag()
 
     def output(self):
-        uploaded_path = mangle_path(self.path, 'raw', 'uploaded')
+        uploaded_path = mangle_path(self.path, 'raw', 'uploaded') + "/"
         return self.flag_target_class(uploaded_path)
 
 class UploadConsumption(luigi.Task):
@@ -68,7 +68,7 @@ class UploadConsumption(luigi.Task):
         self.write_flag()
 
     def output(self):
-        uploaded_path = mangle_path(self.path, 'raw', 'uploaded')
+        uploaded_path = mangle_path(self.path, 'raw', 'uploaded') + "/"
         return self.flag_target_class(uploaded_path)
 
 class UploadDatasets(luigi.WrapperTask):

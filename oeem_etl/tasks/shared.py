@@ -31,8 +31,10 @@ def mangle_path(path, target, replacement):
         )
         raise ValueError(message)
 
-    # Change file extension to csv.
-    filename = os.path.splitext(split_path_parsed[-1])[0]
-    split_path_parsed[-1] = filename + '.csv'
+    # Change file extension to csv, if there is a file extension
+    # (it might just be a directory)
+    if "." in split_path_parsed[-1]:
+        filename = os.path.splitext(split_path_parsed[-1])[0]
+        split_path_parsed[-1] = filename + '.csv'
 
     return '/'.join(split_path_parsed)

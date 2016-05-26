@@ -51,7 +51,7 @@ class StorageClient():
             'format': MixedUnicodeBytesFormat()
         }
         if self.storage_service != 'local':
-            kwargs['client'] = client
+            init_kwargs['client'] = client
 
         class TargetWithClient(target):
             def __init__(self, path):
