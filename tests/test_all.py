@@ -3,6 +3,7 @@ import arrow
 import xml.etree.cElementTree as etree
 from oeem_etl.fetchers import ESPICustomer
 from oeem_etl.storage import StorageClient
+from oeem_etl.tasks.shared import mangle_path
 
 # NOTE: ESPICustomer methods current untested include: _check_dates,
 # _fetch_usage_points, _fetch_usage_data, _should_run_now,
@@ -129,3 +130,14 @@ def test_should_run(customer_instance):
     assert customer_instance.should_run() == True and\
         customer_instance.run_num == 0
 
+def test_mangle_path():
+    with pytest.raises(ValueError):
+        assert mangle_path("/", "raw", "parsed") is None
+
+    assert mangle_path("raw/", "raw", "parsed") == "parsed/"
+    assert mangle_path("raw/raw", "raw", "parsed") == "parsed/raw"
+    assert mangle_path("parsed/raw", "raw", "parsed") == "parsed/parsed"
+    assert mangle_path("/raw", "raw", "parsed") == "/parsed"
+    assert mangle_path("/stuff/rawww/raw/morestuff/", "raw", "parsed") == "/stuff/rawww/parsed/morestuff/"
+    assert mangle_path("raw/morestuff.xml", "raw", "parsed") == "parsed/morestuff.csv"
+    assert mangle_path("raw/blah/morestuff.xml", "raw", "parsed") == "parsed/blah/morestuff.csv"

@@ -6,7 +6,7 @@ long_description = '''Utilities to facilitate data ETL for OEEM Datastore. Inclu
                    datastore.'''
 setup(
     name='oeem_etl',
-    version='0.1dev',
+    version='0.1.1',
     description='Open Energy Efficiency Meter ETL utils',
     long_description=long_description,
     url='https://github.com/impactlab/oeem-etl/',
@@ -25,6 +25,7 @@ setup(
         'py',
         'google-api-python-client',
         'oauth2client',
+        'requests>=2.10.0'
     ],
     keywords='open energy efficiency meter etl espi greenbutton',
 )
