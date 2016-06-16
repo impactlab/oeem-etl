@@ -8,6 +8,7 @@ CONSUMPTION_METADATA_URL = 'consumption_metadatas/'
 CONSUMPTION_METADATA_SYNC_URL = 'consumption_metadatas/sync/'
 CONSUMPTION_RECORD_URL = 'consumption_records/'
 CONSUMPTION_RECORD_SYNC_URL = 'consumption_records/sync/'
+CONSUMPTION_RECORD_SYNC_FASTER_URL = 'consumption_records/bulk_sync/'
 
 STANDARD_PROJECT_DATA_COLUMN_NAMES = [
     "project_id",

@@ -1,7 +1,7 @@
 import luigi
 import yaml
 from .parse import ParseFile
-from ..uploader import upload_project_dataframe, upload_consumption_dataframe
+from ..uploader import upload_project_dataframe, upload_consumption_dataframe, upload_consumption_dataframe_faster
 import pandas as pd
 import os
 
@@ -64,7 +64,7 @@ class UploadConsumption(luigi.Task):
 
     def run(self):
         parsed_consumption = self.load_dataset()
-        consumption_results = upload_consumption_dataframe(parsed_consumption, self.datastore)
+        consumption_results = upload_consumption_dataframe_faster(parsed_consumption, self.datastore)
         self.write_flag()
 
     def output(self):
