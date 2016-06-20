@@ -286,18 +286,24 @@ def _bulk_sync_faster(requester, records, metadatas, url, n):
     Ignore batching for now.
     """
 
-    # For some reason, there isn't a way to match project ids between
-    # the `records` and `metadata`. So, for now, we assume that the
-    # `fuel_type` is enough to match (this breaks if there are multiple
-    # projects in a single CSV file)
+    # Lookup table for matching metadata values to the corresponding key.
+    # This will break if additional fields are added to ConsumptionMetadata
+    #
+    # Also turns out that `energy_unit` and `fuel_type` are just placeholders
+    # (See comment in `_process_raw_consumption_records_data`). So, we just
+    # ignore the `energy_unit`
     metadatas_dict = {}
     for m in metadatas:
-        metadatas_dict[m['fuel_type']] = m['id']
+        fuel_type = m['fuel_type']
+        project_id = m['project']['project_id']
+        key = (fuel_type, project_id)
+        metadatas_dict[key] = m['id']
 
     # Replace consumption metadata in each record with the id of the
     # corresponding DB object
     for record in records:
-        m_id = metadatas_dict.get(record['fuel_type'], None)
+        key = (record['fuel_type'], record['project_id'])
+        m_id = metadatas_dict.get(key, None)
         if m_id is None:
             raise("Wasn't able to match a ConsumptionMetadata id to this ConsumptionRecord")
         record['metadata_id'] = m_id
@@ -305,8 +311,6 @@ def _bulk_sync_faster(requester, records, metadatas, url, n):
         del record['project_id']
 
     response = requester.post(url, records)
-
-    print response
 
     json_response = response.json()
 
@@ -498,7 +502,7 @@ def _process_raw_consumption_records_data(records):
             "project_id": project_id,
             "fuel_type": fuel_type,
             "value": value if pd.notnull(value) else None,
-            "estimated": bool(estimated),
+            "estimated": bool(estimated)
         }
         consumption_records_data.append(record)
     return consumption_records_data
