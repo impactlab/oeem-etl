@@ -8,6 +8,7 @@ import numpy as np
 import pytz
 import re
 import json
+import logging
 
 __all__ = [
     'upload_project_dicts',
@@ -264,6 +265,7 @@ def _bulk_sync(requester, records, url, n):
     for i in range(0, n_records, n):
         batch = records[i:i+n]
         response = requester.post(url, batch)
+        assert response.status_code == 200
         json_response = response.json()
 
         if len(json_response) > 0:
