@@ -312,6 +312,8 @@ def _bulk_sync_faster(requester, records, metadatas, url, n):
 
     response = requester.post(url, records)
 
+    assert response.status_code == 200
+
     json_response = response.json()
 
     return json_response
