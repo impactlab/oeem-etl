@@ -307,7 +307,7 @@ def _bulk_sync_faster(requester, records, metadatas, url, n):
         key = (record['fuel_type'], record['project_id'])
         m_id = metadatas_dict.get(key, None)
         if m_id is None:
-            raise("Wasn't able to match a ConsumptionMetadata id to this ConsumptionRecord")
+            raise Exception("Wasn't able to match a ConsumptionMetadata id to this ConsumptionRecord")
         record['metadata_id'] = m_id
         del record['fuel_type']
         del record['project_id']
