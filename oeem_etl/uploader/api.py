@@ -265,7 +265,14 @@ def _bulk_sync(requester, records, url, n):
     for i in range(0, n_records, n):
         batch = records[i:i+n]
         response = requester.post(url, batch)
-        assert response.status_code == 200
+
+        if response.status_code != 200:
+            if "no Project found" in response.json()[0].get("status", ""):
+                logging.warning("Tried to upload consumption data for a Project that doesn't exist. Skipping it.")
+                continue
+            else:
+                raise Exception("Unknown error when attempting to sync ConsumptionMetedata")
+
         json_response = response.json()
 
         if len(json_response) > 0:
@@ -303,14 +310,19 @@ def _bulk_sync_faster(requester, records, metadatas, url, n):
 
     # Replace consumption metadata in each record with the id of the
     # corresponding DB object
-    for record in records:
-        key = (record['fuel_type'], record['project_id'])
-        m_id = metadatas_dict.get(key, None)
-        if m_id is None:
-            raise Exception("Wasn't able to match a ConsumptionMetadata id to this ConsumptionRecord")
-        record['metadata_id'] = m_id
+    def metadata_key(record):
+        return (record['fuel_type'], record['project_id'])
+    def has_matching_metadata(record):
+        matched = metadata_key(record) in metadatas_dict
+        return matched
+    def trim_record(record):
+        record['metadata_id'] = metadata_key(record)
         del record['fuel_type']
         del record['project_id']
+    len_records_before = len(records)
+    records = map(trim_record, filter(has_matching_metadata, records))
+    if len_records_before != len(records):
+        logging.warning("At least one ConsumptionMetadata id was not matched to a ConsumptionRecord. Skipping it.")
 
     response = requester.post(url, records)
 
