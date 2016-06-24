@@ -8,6 +8,7 @@ import numpy as np
 import pytz
 import re
 import json
+import logging
 
 __all__ = [
     'upload_project_dicts',
@@ -18,6 +19,7 @@ __all__ = [
 
     'upload_project_dataframe',
     'upload_consumption_dataframe',
+    'upload_consumption_dataframe_faster',
 ]
 
 
@@ -83,7 +85,7 @@ def upload_consumption_dicts(consumption_dict, url, access_token):
     """
 
     df = pd.DataFrame(consumption_dict)
-    return upload_consumption_dataframe(df, url, access_token)
+    return upload_consumption_dataframe_faster(df, url, access_token)
 
 def upload_project_csv(project_csv_file, url, access_token, project_owner):
     """Uploads project data in CSV format to a datastore instance.
@@ -212,6 +214,47 @@ def upload_consumption_dataframe(consumption_df, datastore):
         "consumption_records": consumption_record_responses,
     }
 
+def upload_consumption_dataframe_faster(consumption_df, datastore):
+    """Uploads consumption data in pandas DataFrame format to a datastore instance using `bulk_sync`.
+
+    Parameters
+    ----------
+    consumption_df : pandas.DataFrame
+        DataFrame with the following columns::
+
+            project_id,start,end,fuel_type,unit_name,value,estimated
+
+    url : str
+        Base URL of the target datastore.
+    access_token : str
+        Access token for the target datastore.
+    """
+    requester = Requester(datastore['url'], datastore['access_token'])
+
+    consumption_metadata_records = []
+    consumption_record_records = []
+    for consumption_metadata_data, consumption_records_data in \
+            _get_consumption_data(consumption_df):
+        consumption_metadata_records.append(consumption_metadata_data)
+        consumption_record_records.extend(consumption_records_data)
+
+    consumption_metadata_responses = _bulk_sync(
+            requester,
+            consumption_metadata_records,
+            constants.CONSUMPTION_METADATA_SYNC_URL,
+            2000)
+
+    consumption_record_responses = _bulk_sync_faster(
+            requester,
+            consumption_record_records,
+            consumption_metadata_responses,
+            constants.CONSUMPTION_RECORD_SYNC_FASTER_URL,
+            3000)
+
+    return {
+        "consumption_metadatas": consumption_metadata_responses,
+        "consumption_records": consumption_record_responses,
+    }
 
 def _bulk_sync(requester, records, url, n):
     """ Syncs records using a sync endpoint on the datastore by batching in
@@ -222,6 +265,14 @@ def _bulk_sync(requester, records, url, n):
     for i in range(0, n_records, n):
         batch = records[i:i+n]
         response = requester.post(url, batch)
+
+        if response.status_code != 200:
+            if "no Project found" in response.json()[0].get("status", ""):
+                logging.warning("Tried to upload consumption data for a Project that doesn't exist. Skipping it.")
+                continue
+            else:
+                raise Exception("Unknown error when attempting to sync ConsumptionMetedata")
+
         json_response = response.json()
 
         if len(json_response) > 0:
@@ -237,6 +288,49 @@ def _bulk_sync(requester, records, url, n):
 
         responses.extend(json_response)
     return responses
+
+def _bulk_sync_faster(requester, records, metadatas, url, n):
+    """Syncs records using the bulk_sync endpoint on the datastore
+
+    Ignore batching for now.
+    """
+
+    # Lookup table for matching metadata values to the corresponding key.
+    # This will break if additional fields are added to ConsumptionMetadata
+    #
+    # Also turns out that `energy_unit` and `fuel_type` are just placeholders
+    # (See comment in `_process_raw_consumption_records_data`). So, we just
+    # ignore the `energy_unit`
+    metadatas_dict = {}
+    for m in metadatas:
+        fuel_type = m['fuel_type']
+        project_id = m['project']['project_id']
+        key = (fuel_type, project_id)
+        metadatas_dict[key] = m['id']
+
+    # Replace consumption metadata in each record with the id of the
+    # corresponding DB object
+    def metadata_key(record):
+        return (record['fuel_type'], record['project_id'])
+    def has_matching_metadata(record):
+        matched = metadata_key(record) in metadatas_dict
+        return matched
+    def trim_record(record):
+        record['metadata_id'] = metadata_key(record)
+        del record['fuel_type']
+        del record['project_id']
+    len_records_before = len(records)
+    records = map(trim_record, filter(has_matching_metadata, records))
+    if len_records_before != len(records):
+        logging.warning("At least one ConsumptionMetadata id was not matched to a ConsumptionRecord. Skipping it.")
+
+    response = requester.post(url, records)
+
+    assert response.status_code == 200
+
+    json_response = response.json()
+
+    return json_response
 
 
 def _get_project_attribute_keys_data(project_df):
@@ -424,7 +518,7 @@ def _process_raw_consumption_records_data(records):
             "project_id": project_id,
             "fuel_type": fuel_type,
             "value": value if pd.notnull(value) else None,
-            "estimated": bool(estimated),
+            "estimated": bool(estimated)
         }
         consumption_records_data.append(record)
     return consumption_records_data
