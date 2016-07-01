@@ -38,8 +38,27 @@ class StorageClient():
                     self.config['gcs_service_account_private_key_json'])
             cred = ServiceAccountCredentials.from_json_keyfile_dict(key_json)
             client = GCSClient(oauth_credentials=cred)
+
+            # Hack around a bug in Luigi's GCS module
+            class GCSFlagTarget2(GCSTarget):
+                fs = None
+                def __init__(self, path, format=None, client=None, flag='_SUCCESS'):
+                    if format is None:
+                        format = luigi.format.get_default_format()
+                    if path[-1] != "/":
+                        raise ValueError("GCSFlagTarget requires the path to be to a "
+                                         "directory.  It must end with a slash ( / ).")
+                    # This is the only line that's different
+                    super(GCSFlagTarget2, self).__init__(path, client=client)
+                    self.format = format
+                    self.fs = client or GCSClient()
+                    self.flag = flag
+                def exists(self):
+                    flag_target = self.path + self.flag
+                    return self.fs.exists(flag_target)
+
             target = GCSTarget
-            flag_target = GCSFlagTarget
+            flag_target = GCSFlagTarget2
         else:
             raise EnvironmentError('Please add known file_storage value to config.')
 
