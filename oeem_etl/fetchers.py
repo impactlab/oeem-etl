@@ -1,6 +1,6 @@
 import os
 import arrow
-import urllib
+import six.moves.urllib as urllib
 import requests
 import logging
 import py
