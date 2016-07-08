@@ -305,20 +305,21 @@ def _bulk_sync_faster(requester, records, metadatas, url, n):
     for m in metadatas:
         fuel_type = m['fuel_type']
         project_id = m['project']['project_id']
-        key = (fuel_type, project_id)
+        key = (str(fuel_type), str(project_id))
         metadatas_dict[key] = m['id']
 
     # Replace consumption metadata in each record with the id of the
     # corresponding DB object
     def metadata_key(record):
-        return (record['fuel_type'], record['project_id'])
+        return (str(record['fuel_type']), str(record['project_id']))
     def has_matching_metadata(record):
         matched = metadata_key(record) in metadatas_dict
         return matched
     def trim_record(record):
-        record['metadata_id'] = metadata_key(record)
+        record['metadata_id'] = metadatas_dict[metadata_key(record)]
         del record['fuel_type']
         del record['project_id']
+        return record
     len_records_before = len(records)
     records = map(trim_record, filter(has_matching_metadata, records))
     if len_records_before != len(records):
