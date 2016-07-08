@@ -165,13 +165,13 @@ def upload_project_dataframe(project_df, datastore):
         project_attribute_records.extend(project_attributes_data)
 
     project_attribute_key_responses = _bulk_sync(requester, project_attribute_key_records,
-            constants.PROJECT_ATTRIBUTE_KEY_SYNC_URL, 2000)
+            constants.PROJECT_ATTRIBUTE_KEY_SYNC_URL, 200)
 
     project_responses = _bulk_sync(requester, project_records,
-            constants.PROJECT_SYNC_URL, 1000)
+            constants.PROJECT_SYNC_URL, 200)
 
     project_attribute_responses = _bulk_sync(requester, project_attribute_records,
-            constants.PROJECT_ATTRIBUTE_SYNC_URL, 2000)
+            constants.PROJECT_ATTRIBUTE_SYNC_URL, 200)
 
     return {
         "projects": project_responses,
