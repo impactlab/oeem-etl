@@ -1,7 +1,6 @@
 from oeem_etl.uploader import constants
 from oeem_etl.uploader.requester import Requester
 from datetime import date, datetime
-from eemeter.consumption import ConsumptionData
 import dateutil.parser
 import pandas as pd
 import numpy as np
@@ -9,6 +8,14 @@ import pytz
 import re
 import json
 import logging
+
+try:
+    # 0.3
+    from eemeter.consumption import ConsumptionData
+except:
+    # 0.4
+    pass
+
 
 __all__ = [
     'upload_project_dicts',
