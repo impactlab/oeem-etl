@@ -419,9 +419,6 @@ def _get_project_data(project_df, project_attribute_keys_data):
         project_data = {
             "project_id": row.project_id,
             "zipcode": str(row.zipcode) if pd.notnull(row.zipcode) else None,
-            "weather_station": str(row.weather_station) if pd.notnull(row.weather_station) else None,
-            "latitude": row.latitude if pd.notnull(row.latitude) else None,
-            "longitude": row.longitude if pd.notnull(row.longitude) else None,
             "baseline_period_start": None,
             "reporting_period_end": None,
         }
