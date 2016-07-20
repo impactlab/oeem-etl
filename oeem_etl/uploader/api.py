@@ -303,29 +303,28 @@ def _bulk_sync_faster(requester, records, metadatas, url, n):
     """
 
     # Lookup table for matching metadata values to the corresponding key.
-    # This will break if additional fields are added to ConsumptionMetadata
-    #
-    # Also turns out that `energy_unit` and `fuel_type` are just placeholders
-    # (See comment in `_process_raw_consumption_records_data`). So, we just
-    # ignore the `energy_unit`
     metadatas_dict = {}
     for m in metadatas:
-        fuel_type = m['fuel_type']
+        interpretation = m['interpretation']
+        unit = m['unit']
         project_id = m['project']['project_id']
-        key = (str(fuel_type), str(project_id))
+        label = m['label']
+        key = (str(interpretation), str(unit), str(project_id), str(label))
         metadatas_dict[key] = m['id']
 
     # Replace consumption metadata in each record with the id of the
     # corresponding DB object
     def metadata_key(record):
-        return (str(record['fuel_type']), str(record['project_id']))
+        return (str(record['interpretation']), str(record['unit']), str(record['project_id']), str(record['label']))
     def has_matching_metadata(record):
         matched = metadata_key(record) in metadatas_dict
         return matched
     def trim_record(record):
         record['metadata_id'] = metadatas_dict[metadata_key(record)]
-        del record['fuel_type']
+        del record['interpretation']
+        del record['unit']
         del record['project_id']
+        del record['label']
         return record
     len_records_before = len(records)
     records = map(trim_record, filter(has_matching_metadata, records))
