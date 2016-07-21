@@ -80,7 +80,13 @@ def upload_consumption_dataframe(consumption_df, datastore):
     consumption_df : pandas.DataFrame
         DataFrame with the following columns::
 
-            project_id,start,end,fuel_type,unit_name,value,estimated
+            project_id,
+            start,
+            unit,
+            label,
+            interpretation,
+            value,
+            estimated
 
     url : str
         Base URL of the target datastore.
