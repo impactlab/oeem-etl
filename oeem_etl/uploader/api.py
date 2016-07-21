@@ -90,39 +90,32 @@ def upload_consumption_dataframe_faster(consumption_df, datastore):
             interpretation,
             value,
             estimated
-
-    url : str
-        Base URL of the target datastore.
-    access_token : str
-        Access token for the target datastore.
+    
+    datastore: dict
+        Dict with the following properties
+        url : str
+            Base URL of the target datastore.
+        access_token : str
+            Access token for the target datastore.
     """
     requester = Requester(datastore['url'], datastore['access_token'])
 
-
-    # Replaced below
-    # consumption_metadata_records = []
-    # consumption_record_records = []
-    # for consumption_metadata_data, consumption_records_data in \
-    #         _get_consumption_data(consumption_df):
-    #     consumption_metadata_records.append(consumption_metadata_data)
-    #     consumption_record_records.extend(consumption_records_data)
-
+    # The datastore expects certain fields to be split out of consumption records
+    # and synced as ConsumptionMetadata.
 
     # Extract unique metadata records
     consumption_metadata_records = {}
     for _, row in consumption_df.iterrows():
         record = {
             "project_project_id": row.project_id,
-            "unit": "KWH",
+            "unit": row.unit,
             "interpretation": row.interpretation,
             "label": row.label,
         }
         consumption_metadata_records[tuple(record.values())] = record
     consumption_metadata_records = consumption_metadata_records.values()
 
-    # TODO: verify `start` ends up with the right value.
-    # TODO: type casting necessary anywhere here?
-    # TODO: unit
+    # Marshall dataframe to dict
     consumption_record_records = []
     for _, row in consumption_df.iterrows():
         consumption_record_records.append({
@@ -132,7 +125,7 @@ def upload_consumption_dataframe_faster(consumption_df, datastore):
             "value": row.value,
             "estimated": row.estimated,
             "label": row.label,
-            "unit": "KWH"
+            "unit": row.unit
         })
 
     consumption_metadata_responses = _bulk_sync(
@@ -348,71 +341,3 @@ def _get_project_attribute_data(row, project_attribute_key_data):
     }
 
     return project_attribute_data
-
-def _get_consumption_data(consumption_df):
-    """ Yields consumption records and metadata grouped by project and fuel type
-    """
-    for project_id, project_consumption in consumption_df.groupby("project_id"):
-        for fuel_type, fuel_type_consumption in project_consumption.groupby("fuel_type"):
-            unique_unit_names = fuel_type_consumption.unit_name.unique()
-            assert unique_unit_names.shape[0] == 1
-
-            consumption_metadata_data = {
-                "project_project_id": project_id,
-                "fuel_type": constants.FUEL_TYPES[fuel_type],
-                "energy_unit": constants.ENERGY_UNIT[unique_unit_names[0]],
-            }
-            consumption_records_data = _get_consumption_records_data(
-                    fuel_type_consumption)
-
-            yield consumption_metadata_data, consumption_records_data
-
-def _get_consumption_records_data(consumption_df):
-    """ Get consumption records from single project_id/fuel_type group. """
-    raw_consumption_records_data = _get_raw_consumption_records_data(
-            consumption_df)
-    consumption_records_data = _process_raw_consumption_records_data(
-            raw_consumption_records_data)
-    return consumption_records_data
-
-def _get_raw_consumption_records_data(consumption_df):
-    """ Get raw consumption records from single project_id/fuel_type group. """
-    raw_consumption_records_data = []
-    for i, row in consumption_df.iterrows():
-        consumption_record_data = {
-            "project_id": row.project_id,
-            "fuel_type": constants.FUEL_TYPES[row.fuel_type],
-            "start": row.start,
-            "end": row.end,
-            "value": row.value,
-            "estimated": row.estimated,
-        }
-        raw_consumption_records_data.append(consumption_record_data)
-    return raw_consumption_records_data
-
-def _process_raw_consumption_records_data(records):
-    """ Turn records into "start" oriented records, make UTC. """
-
-    # assume all from the same project and fuel_type
-    if len(records) > 0:
-        project_id = records[0]["project_id"]
-        fuel_type = records[0]["fuel_type"]
-
-    # dumb hack - the fuel_type and unit_name are actually just placeholders
-    # and don't actually affect the processing. This an indication that (TODO),
-    # this logic should be factored out of the ConsumptionData object.
-    consumption_data = ConsumptionData(records, "electricity", "kWh",
-                                       record_type="arbitrary")
-
-    consumption_records_data = []
-    for (d1, value), (d2, estimated) in zip(consumption_data.data.iteritems(), consumption_data.estimated.iteritems()):
-        assert d1 == d2
-        record = {
-            "start": pytz.UTC.localize(d1.to_datetime()).strftime("%Y-%m-%dT%H:%M:%S%z"),
-            "project_id": project_id,
-            "fuel_type": fuel_type,
-            "value": value if pd.notnull(value) else None,
-            "estimated": bool(estimated)
-        }
-        consumption_records_data.append(record)
-    return consumption_records_data
