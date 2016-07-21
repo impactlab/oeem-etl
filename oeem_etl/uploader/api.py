@@ -73,7 +73,10 @@ def upload_project_dataframe(project_df, datastore):
     }
 
 def upload_consumption_dataframe(consumption_df, datastore):
-    """Uploads consumption data in pandas DataFrame format to a datastore instance.
+    raise DeprecationWarning("Please use upload_consumption_dataframe_faster")
+
+def upload_consumption_dataframe_faster(consumption_df, datastore):
+    """Uploads consumption data in pandas DataFrame format to a datastore instance using `bulk_sync`.
 
     Parameters
     ----------
@@ -87,41 +90,6 @@ def upload_consumption_dataframe(consumption_df, datastore):
             interpretation,
             value,
             estimated
-
-    url : str
-        Base URL of the target datastore.
-    access_token : str
-        Access token for the target datastore.
-    """
-    requester = Requester(datastore['url'], datastore['access_token'])
-
-    consumption_metadata_records = []
-    consumption_record_records = []
-    for consumption_metadata_data, consumption_records_data in \
-            _get_consumption_data(consumption_df):
-        consumption_metadata_records.append(consumption_metadata_data)
-        consumption_record_records.extend(consumption_records_data)
-
-    consumption_metadata_responses = _bulk_sync(requester, consumption_metadata_records,
-            constants.CONSUMPTION_METADATA_SYNC_URL, 2000)
-
-    consumption_record_responses = _bulk_sync(requester, consumption_record_records,
-            constants.CONSUMPTION_RECORD_SYNC_URL, 3000)
-
-    return {
-        "consumption_metadatas": consumption_metadata_responses,
-        "consumption_records": consumption_record_responses,
-    }
-
-def upload_consumption_dataframe_faster(consumption_df, datastore):
-    """Uploads consumption data in pandas DataFrame format to a datastore instance using `bulk_sync`.
-
-    Parameters
-    ----------
-    consumption_df : pandas.DataFrame
-        DataFrame with the following columns::
-
-            project_id,start,end,fuel_type,unit_name,value,estimated
 
     url : str
         Base URL of the target datastore.
