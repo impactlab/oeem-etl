@@ -74,9 +74,8 @@ class UploadConsumption(luigi.Task):
 
     def load_dataset(self):
         df = pd.read_csv(self.input()['file'].open('r'),
-                dtype={"zipcode": str, "weather_station": str})
+                dtype={"zipcode": str})
         df.start = pd.to_datetime(df.start)
-        df.end = pd.to_datetime(df.end)
         return df
 
     def write_flag(self):

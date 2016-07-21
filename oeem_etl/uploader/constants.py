@@ -40,13 +40,23 @@ STANDARD_PROJECT_ATTRIBUTE_KEYS = {
     },
 }
 
-FUEL_TYPES = {
-    "electricity": "E",
-    "natural_gas": "NG",
-}
+# Maps human-readable values to value the datastore expects
+INTERPRETATION_CHOICES = [
+    ('E_C_S', 'ELECTRICITY_CONSUMPTION_SUPPLIED'),
+    ('E_C_T', 'ELECTRICITY_CONSUMPTION_TOTAL'),
+    ('E_C_N', 'ELECTRICITY_CONSUMPTION_NET'),
+    ('E_OSG_T', 'ELECTRICITY_ON_SITE_GENERATION_TOTAL'),
+    ('E_OSG_C', 'ELECTRICITY_ON_SITE_GENERATION_CONSUMED'),
+    ('E_OSG_U', 'ELECTRICITY_ON_SITE_GENERATION_UNCONSUMED'),
+    ('NG_C_S', 'NATURAL_GAS_CONSUMPTION_SUPPLIED'),
+]
+INTERPRETATION_CHOICES = {value:key for key, value in INTERPRETATION_CHOICES}
 
-ENERGY_UNIT = {
-    "kWh": "KWH",
-    "therms": "THM",
-    "therm": "THM",
-}
+# Maps human-readable values to value the datastore expects
+UNIT_CHOICES = [
+    ('KWH', 'kWh'),
+    ('THM', 'therm'),
+    ('THM', 'THERM'),
+]
+UNIT_CHOICES = {value:key for key, value in UNIT_CHOICES}
+
