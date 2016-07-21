@@ -31,7 +31,10 @@ def upload_project_dataframe(project_df, datastore):
     project_df : pandas.DataFrame
         DataFrame with the following columns::
 
-            project_id,zipcode,weather_station,latitude,longitude,baseline_period_end,reporting_period_start
+            project_id,
+            zipcode,
+            baseline_period_end,
+            reporting_period_start
 
         Extra columns will be treated as project attributes.
     url : str
