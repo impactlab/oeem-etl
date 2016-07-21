@@ -119,7 +119,7 @@ def upload_consumption_dataframe_faster(consumption_df, datastore):
 
     # Extract unique metadata records
     consumption_metadata_records = {}
-    for _, row in consumption_record_records:
+    for row in consumption_record_records:
         record = {
             "project_project_id": row['project_id'],
             "unit": row['unit'],
@@ -158,8 +158,8 @@ def upload_consumption_dataframe_faster(consumption_df, datastore):
         return record
 
     # Try to match consumption records
-    len_records_before = len(records)
     records = consumption_record_records
+    len_records_before = len(records)
     records = map(trim_record, filter(has_matching_metadata, records))
     if len_records_before != len(records):
         logging.warning("At least one ConsumptionMetadata id was not matched to a ConsumptionRecord. Skipping it.")
