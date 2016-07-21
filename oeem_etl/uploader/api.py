@@ -102,15 +102,23 @@ def upload_consumption_dataframe_faster(consumption_df, datastore):
 
     # Marshall consumption dataframe to list of dicts
     consumption_record_records = []
+
+    def map_choice(choice_mapping, value):
+        if value in choice_mapping.values():
+            return value
+        assert value in choice_mapping
+        return choice_mapping.get(value)
+
+
     for _, row in consumption_df.iterrows():
         consumption_record_records.append({
             "project_id": row.project_id,
             "start": pytz.UTC.localize(row.start.to_datetime()).strftime("%Y-%m-%dT%H:%M:%S%z"),
-            "interpretation": row.interpretation,
+            "interpretation": map_choice(constants.INTERPRETATION_CHOICES, row.interpretation),
             "value": row.value,
             "estimated": row.estimated,
             "label": row.label,
-            "unit": row.unit
+            "unit": map_choice(constants.UNIT_CHOICES, row.unit)
         })
 
 
