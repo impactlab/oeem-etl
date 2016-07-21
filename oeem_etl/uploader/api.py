@@ -76,7 +76,7 @@ def upload_consumption_dataframe(consumption_df, datastore):
     raise DeprecationWarning("Please use upload_consumption_dataframe_faster")
 
 def upload_consumption_dataframe_faster(consumption_df, datastore):
-    """Uploads consumption data in pandas DataFrame format to a datastore instance using `bulk_sync`.
+    """Uploads consumption data in pandas DataFrame format to a datastore instance using `bulk_sync_faster`.
 
     Parameters
     ----------
@@ -100,22 +100,7 @@ def upload_consumption_dataframe_faster(consumption_df, datastore):
     """
     requester = Requester(datastore['url'], datastore['access_token'])
 
-    # The datastore expects certain fields to be split out of consumption records
-    # and synced as ConsumptionMetadata.
-
-    # Extract unique metadata records
-    consumption_metadata_records = {}
-    for _, row in consumption_df.iterrows():
-        record = {
-            "project_project_id": row.project_id,
-            "unit": row.unit,
-            "interpretation": row.interpretation,
-            "label": row.label,
-        }
-        consumption_metadata_records[tuple(record.values())] = record
-    consumption_metadata_records = consumption_metadata_records.values()
-
-    # Marshall dataframe to dict
+    # Marshall consumption dataframe to list of dicts
     consumption_record_records = []
     for _, row in consumption_df.iterrows():
         consumption_record_records.append({
@@ -128,18 +113,62 @@ def upload_consumption_dataframe_faster(consumption_df, datastore):
             "unit": row.unit
         })
 
+
+    # The datastore expects certain fields to be split out of consumption records
+    # and synced as ConsumptionMetadata.
+
+    # Extract unique metadata records
+    consumption_metadata_records = {}
+    for _, row in consumption_record_records:
+        record = {
+            "project_project_id": row['project_id'],
+            "unit": row['unit'],
+            "interpretation": row['interpretation'],
+            "label": row['label'],
+        }
+        consumption_metadata_records[tuple(record.values())] = record
+    consumption_metadata_records = consumption_metadata_records.values()
+
+    # Sync ConsumptionMetadata
     consumption_metadata_responses = _bulk_sync(
             requester,
             consumption_metadata_records,
             constants.CONSUMPTION_METADATA_SYNC_URL,
             2000)
 
+    # Update consumption records to point to id of ConsumptionMetadata records just created
+    metadatas = consumption_metadata_responses
+    metadatas_dict = {}
+    metadata_key_fields = ['interpretation', 'unit', 'project_id', 'label']
+    def metadata_key(record):
+        return tuple([str(record[key]) for key in metadata_key_fields])
+
+    # Build mapping from fields to metadata id
+    for m in metadatas:
+        m['project_id'] = m['project']['project_id']
+    metadatas_dict = {
+        metadata_key(m): m['id'] for m in metadatas
+    }
+    def has_matching_metadata(record):
+        return metadata_key(record) in metadatas_dict
+    def trim_record(record):
+        record['metadata_id'] = metadatas_dict[metadata_key(record)]
+        for field in metadata_key_fields:
+            del record[field]
+        return record
+
+    # Try to match consumption records
+    len_records_before = len(records)
+    records = consumption_record_records
+    records = map(trim_record, filter(has_matching_metadata, records))
+    if len_records_before != len(records):
+        logging.warning("At least one ConsumptionMetadata id was not matched to a ConsumptionRecord. Skipping it.")
+
+    # Upload the trimmed ConsumptionRecords
     consumption_record_responses = _bulk_sync_faster(
             requester,
-            consumption_record_records,
-            consumption_metadata_responses,
-            constants.CONSUMPTION_RECORD_SYNC_FASTER_URL,
-            3000)
+            records,
+            constants.CONSUMPTION_RECORD_SYNC_FASTER_URL)
 
     return {
         "consumption_metadatas": consumption_metadata_responses,
@@ -179,48 +208,16 @@ def _bulk_sync(requester, records, url, n):
         responses.extend(json_response)
     return responses
 
-def _bulk_sync_faster(requester, records, metadatas, url, n):
-    """Syncs records using the bulk_sync endpoint on the datastore
-
-    Ignore batching for now.
-    """
-
-    # Lookup table for matching metadata values to the corresponding key.
-    metadatas_dict = {}
-    for m in metadatas:
-        interpretation = m['interpretation']
-        unit = m['unit']
-        project_id = m['project']['project_id']
-        label = m['label']
-        key = (str(interpretation), str(unit), str(project_id), str(label))
-        metadatas_dict[key] = m['id']
-
-    # Replace consumption metadata in each record with the id of the
-    # corresponding DB object
-    def metadata_key(record):
-        return (str(record['interpretation']), str(record['unit']), str(record['project_id']), str(record['label']))
-    def has_matching_metadata(record):
-        matched = metadata_key(record) in metadatas_dict
-        return matched
-    def trim_record(record):
-        record['metadata_id'] = metadatas_dict[metadata_key(record)]
-        del record['interpretation']
-        del record['unit']
-        del record['project_id']
-        del record['label']
-        return record
-    len_records_before = len(records)
-    records = map(trim_record, filter(has_matching_metadata, records))
-    if len_records_before != len(records):
-        logging.warning("At least one ConsumptionMetadata id was not matched to a ConsumptionRecord. Skipping it.")
-
+def _bulk_sync_faster(requester, records, url):
+    """Syncs records using the bulk_sync endpoint on the datastore"""
     response = requester.post(url, records)
-
     assert response.status_code == 200
-
     json_response = response.json()
-
     return json_response
+
+
+
+
 
 
 def _get_project_attribute_keys_data(project_df):
