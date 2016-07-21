@@ -18,127 +18,10 @@ except:
 
 
 __all__ = [
-    'upload_project_dicts',
-    'upload_consumption_dicts',
-
-    'upload_project_csv',
-    'upload_consumption_csv',
-
     'upload_project_dataframe',
     'upload_consumption_dataframe',
     'upload_consumption_dataframe_faster',
 ]
-
-
-def upload_project_dicts(project_dict, url, access_token, project_owner):
-    """Uploads project data in python dict format to a datastore instance.
-
-    Parameters
-    ----------
-    project_dict : list of dicts
-        List of dictionaries with contents something like the following::
-
-            [
-                {
-                    "project_id": "ID_1",
-                    "zipcode": "01234",
-                    "weather_station": "012345",
-                    "latitude": 89.0,
-                    "longitude": -42.0,
-                    "baseline_period_end": datetime(2015, 1, 1),
-                    "reporting_period_start": datetime(2015, 2, 1),
-                },
-                ...
-            ]
-
-        Extra columns will be treated as project attributes.
-
-    url : str
-        URL of the target datastore, e.g. `https://datastore.openeemeter.org`
-    access_token : str
-        Access token for the target datastore.
-    project_owner : int
-        Primary key of project_owner for datastore.
-    """
-
-    df = pd.DataFrame(project_dict)
-    return upload_project_dataframe(df, url, access_token, project_owner)
-
-def upload_consumption_dicts(consumption_dict, url, access_token):
-    """Uploads project data in python dict format to a datastore instance.
-
-    Parameters
-    ----------
-    consumption_dict : list of dicts
-        List of dictionaries with contents something like the following::
-
-            [
-                {
-                    "project_id": "ID_1",
-                    "start": datetime(2015, 1, 1),
-                    "end": datetime(2015, 1, 2),
-                    "fuel_type": "electricity",
-                    "unit_name": "kWh",
-                    "value": 0,
-                    "estimated": True,
-                },
-                ...
-            ]
-
-    url : str
-        URL of the target datastore, e.g. `https://datastore.openeemeter.org`
-    access_token : str
-        Access token for the target datastore.
-    """
-
-    df = pd.DataFrame(consumption_dict)
-    return upload_consumption_dataframe_faster(df, url, access_token)
-
-def upload_project_csv(project_csv_file, url, access_token, project_owner):
-    """Uploads project data in CSV format to a datastore instance.
-
-    Parameters
-    ----------
-    project_csv_file : file object
-        File pointer to a CSV with the following columns::
-
-            project_id,zipcode,weather_station,latitude,longitude,baseline_period_end,reporting_period_start
-
-        Extra columns will be treated as project attributes.
-    url : str
-        Base URL of the target datastore.
-    access_token : str
-        Access token for the target datastore.
-    project_owner : int
-        Primary key of project_owner for datastore.
-    """
-
-    project_df = pd.read_csv(project_csv_file)
-    project_df.baseline_period_end = pd.to_datetime(project_df.baseline_period_end)
-    project_df.reporting_period_start = pd.to_datetime(project_df.reporting_period_start)
-    return upload_project_dataframe(project_df, url, access_token, project_owner)
-
-def upload_consumption_csv(consumption_csv_file, url, access_token):
-    """Uploads consumption data in CSV format to a datastore instance.
-
-    Parameters
-    ----------
-    consumption_csv_file : file object
-        File pointer to a CSV with the following columns::
-
-            project_id,start,end,fuel_type,unit_name,value,estimated
-
-        Extra columns will be treated as project attributes.
-    url : str
-        Base URL of the target datastore.
-    access_token : str
-        Access token for the target datastore.
-    """
-
-    consumption_df = pd.read_csv(consumption_csv_file, dtype={'value': np.float})
-    consumption_df.start = pd.to_datetime(consumption_df.start)
-    consumption_df.end = pd.to_datetime(consumption_df.end)
-    return upload_consumption_dataframe(consumption_df, url, access_token)
 
 def upload_project_dataframe(project_df, datastore):
     """Uploads project data in pandas DataFrame format to a datastore instance.
@@ -238,12 +121,42 @@ def upload_consumption_dataframe_faster(consumption_df, datastore):
     """
     requester = Requester(datastore['url'], datastore['access_token'])
 
-    consumption_metadata_records = []
+
+    # Replaced below
+    # consumption_metadata_records = []
+    # consumption_record_records = []
+    # for consumption_metadata_data, consumption_records_data in \
+    #         _get_consumption_data(consumption_df):
+    #     consumption_metadata_records.append(consumption_metadata_data)
+    #     consumption_record_records.extend(consumption_records_data)
+
+
+    # Extract unique metadata records
+    consumption_metadata_records = {}
+    for _, row in consumption_df.iterrows():
+        record = {
+            "project_project_id": row.project_id,
+            "unit": "KWH",
+            "interpretation": row.interpretation,
+            "label": row.label,
+        }
+        consumption_metadata_records[tuple(record.values())] = record
+    consumption_metadata_records = consumption_metadata_records.values()
+
+    # TODO: verify `start` ends up with the right value.
+    # TODO: type casting necessary anywhere here?
+    # TODO: unit
     consumption_record_records = []
-    for consumption_metadata_data, consumption_records_data in \
-            _get_consumption_data(consumption_df):
-        consumption_metadata_records.append(consumption_metadata_data)
-        consumption_record_records.extend(consumption_records_data)
+    for _, row in consumption_df.iterrows():
+        consumption_record_records.append({
+            "project_id": row.project_id,
+            "start": pytz.UTC.localize(row.start.to_datetime()).strftime("%Y-%m-%dT%H:%M:%S%z"),
+            "interpretation": row.interpretation,
+            "value": row.value,
+            "estimated": row.estimated,
+            "label": row.label,
+            "unit": "KWH"
+        })
 
     consumption_metadata_responses = _bulk_sync(
             requester,
