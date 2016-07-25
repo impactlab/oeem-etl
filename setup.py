@@ -27,8 +27,5 @@ setup(
         'oauth2client',
         'requests>=2.10.0'
     ],
-    dependency_links=[
-        "http://github.com/impactlab/eemeter/tarball/feature/experimental-v0.4-prototyping#egg=eemeter-0.4"
-    ],
     keywords='open energy efficiency meter etl espi greenbutton',
 )
