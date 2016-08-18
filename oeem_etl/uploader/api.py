@@ -76,7 +76,7 @@ def upload_consumption_dataframe(consumption_df, datastore):
     raise DeprecationWarning("Please use upload_consumption_dataframe_faster")
 
 def upload_consumption_dataframe_faster(consumption_df, datastore):
-    """Uploads consumption data in pandas DataFrame format to a datastore instance using `bulk_sync_faster`.
+    """Uploads consumption data in pandas DataFrame format to a datastore instance using `bulk_insert`.
 
     Parameters
     ----------
@@ -109,18 +109,7 @@ def upload_consumption_dataframe_faster(consumption_df, datastore):
         assert value in choice_mapping
         return choice_mapping.get(value)
 
-
-    for _, row in consumption_df.iterrows():
-        consumption_record_records.append({
-            "project_id": row.project_id,
-            "start": pytz.UTC.localize(row.start.to_datetime()).strftime("%Y-%m-%dT%H:%M:%S%z"),
-            "interpretation": map_choice(constants.INTERPRETATION_CHOICES, row.interpretation),
-            "value": row.value,
-            "estimated": row.estimated,
-            "label": row.label,
-            "unit": map_choice(constants.UNIT_CHOICES, row.unit)
-        })
-
+    consumption_record_records = consumption_df.to_dict(orient='records')
 
     # The datastore expects certain fields to be split out of consumption records
     # and synced as ConsumptionMetadata.
@@ -146,23 +135,17 @@ def upload_consumption_dataframe_faster(consumption_df, datastore):
 
     # Update consumption records to point to id of ConsumptionMetadata records just created
     metadatas = consumption_metadata_responses
-    metadatas_dict = {}
-    metadata_key_fields = ['interpretation', 'unit', 'project_id', 'label']
-    def metadata_key(record):
-        return tuple([str(record[key]) for key in metadata_key_fields])
+    metadatas_dict = {record['label']: record['id'] for record in consumption_metadata_responses}
 
-    # Build mapping from fields to metadata id
-    for m in metadatas:
-        m['project_id'] = m['project']['project_id']
-    metadatas_dict = {
-        metadata_key(m): m['id'] for m in metadatas
-    }
     def has_matching_metadata(record):
-        return metadata_key(record) in metadatas_dict
+        return record['label'] in metadatas_dict
     def trim_record(record):
-        record['metadata_id'] = metadatas_dict[metadata_key(record)]
-        for field in metadata_key_fields:
-            del record[field]
+        fields_to_upload = ['metadata_id', 'start', 'estimated', 'value']
+        record['metadata_id'] = metadatas_dict[record['label']]
+        record_keys = record.keys()
+        for key in record_keys:
+            if key not in fields_to_upload:
+                del record[key]
         return record
 
     # Try to match consumption records
@@ -193,12 +176,12 @@ def _bulk_sync(requester, records, url, n):
         batch = records[i:i+n]
         response = requester.post(url, batch)
 
-        if response.status_code != 200:
+        if response.status_code not in [200, 201]:
             if "no Project found" in response.json()[0].get("status", ""):
                 logging.warning("Tried to upload consumption data for a Project that doesn't exist. Skipping it.")
                 continue
             else:
-                raise Exception("Unknown error when attempting to sync ConsumptionMetedata")
+                raise Exception("Unknown error when attempting to sync ConsumptionMetadata")
 
         json_response = response.json()
 
@@ -217,7 +200,7 @@ def _bulk_sync(requester, records, url, n):
     return responses
 
 def _bulk_sync_faster(requester, records, url):
-    """Syncs records using the bulk_sync endpoint on the datastore"""
+    """Syncs records using the bulk_insert endpoint on the datastore"""
     response = requester.post(url, records)
     assert response.status_code == 200
     json_response = response.json()

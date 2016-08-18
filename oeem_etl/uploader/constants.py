@@ -5,10 +5,10 @@ PROJECT_SYNC_URL = 'projects/sync/'
 PROJECT_ATTRIBUTE_URL = 'project_attributes/'
 PROJECT_ATTRIBUTE_SYNC_URL = 'project_attributes/sync/'
 CONSUMPTION_METADATA_URL = 'consumption_metadatas/'
-CONSUMPTION_METADATA_SYNC_URL = 'consumption_metadatas/sync/'
+CONSUMPTION_METADATA_SYNC_URL = 'consumption_metadatas/many/'
 CONSUMPTION_RECORD_URL = 'consumption_records/'
 CONSUMPTION_RECORD_SYNC_URL = 'consumption_records/sync/'
-CONSUMPTION_RECORD_SYNC_FASTER_URL = 'consumption_records/sync2/'
+CONSUMPTION_RECORD_SYNC_FASTER_URL = 'consumption_records/bulk_insert/'
 
 STANDARD_PROJECT_DATA_COLUMN_NAMES = [
     "project_id",
