@@ -1,5 +1,19 @@
 import csv
 
+def date_reader(date_format):
+    def reader(raw): 
+        if raw.strip() == '':
+            return None
+        return datetime.datetime.strptime(raw, date_format)
+    return reader
+
+def date_formatter(date_format):
+    def formatter(timestamp):
+        if timestamp is None:
+            return ''
+        return timestamp.strftime(date_format)
+    return formatter
+
 def read_csv_file(csvfile, dtypes=None):
     """Read the csv file, possibly converting values in its cells
 
