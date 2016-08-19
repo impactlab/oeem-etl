@@ -5,6 +5,7 @@ http://luigi.readthedocs.io/en/stable/configuration.html#parameters-from-config-
 """
 
 import luigi
+import os
 from oeem_etl.storage import StorageClient
 
 class oeem(luigi.Config):
@@ -13,6 +14,9 @@ class oeem(luigi.Config):
     project_owner        = luigi.IntParameter()
     file_storage         = luigi.Parameter()
     local_data_directory = luigi.Parameter()
+    uploaded_base_path   = luigi.Parameter()
+    formatted_base_path  = luigi.Parameter()
+
 
     _target_class = None
     _flag_target_class = None
@@ -44,5 +48,8 @@ class oeem(luigi.Config):
         if self._datastore is None:
             self._datastore = self.__dict__
         return self._datastore
+
+    def full_path(self, filename):
+        return os.path.join(self.local_data_directory, filename)
 
 oeem = oeem()
