@@ -25,6 +25,7 @@ import numpy as np
 import luigi
 from oeem_etl.uploader import upload_project_dataframe, upload_consumption_dataframe_faster
 import oeem_etl.config as config
+from oeem_etl.paths import mirror_path
 
 
 OEEM_FORMAT_OUTPUT_BASE_PATH = 'oeem-format'
@@ -72,27 +73,6 @@ class UploadProjects(luigi.WrapperTask):
     
     def requires(self):
         return [UploadProject(path) for path in self.project_paths]
-
-
-def mirror_path(path, from_path, to_path):
-    """Replaces the prefix `from_path` on `path` with `to_path`
-
-    e.g.
-
-    mirror_path("/home/user/data/client/raw/consumptions/000.csv", 
-                "/home/user/data/client/raw",
-                "/home/user/data/client/uploaded")
-    
-    returns
-
-    "/home/user/data/client/uploaded/consumptions/000.csv"    
-
-    """
-
-    # Returns path with any directories nested under `raw` and the filename
-    nested_path = os.path.relpath(path, from_path)    
-    output_path = os.path.join(to_path, nested_path)
-    return output_path
 
 def formatted2uploaded_path(path):
     return mirror_path(path, 
