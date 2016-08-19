@@ -1,48 +1,44 @@
 # Shared ETL utility functions
-This is a shared library of routines for writing ETL (Extract-Transform-Load) pipelines for loading OEEM Datastore instances.
+This is a shared library of routines for writing ETL pipelines for OEEM Datastore instances. Features include:
 
-Specifically, this repo includes:
-- functions for fetching energy data from ESPI APIs, saving it to S3 or GCS, and uploading it to an OEEM Datastore instance.
-- [luigi tasks](luigi.readthedocs.org) for fetching, parsing, and upload energy consumption and retrofit project data.
+- fetch energy data from ESPI APIs
+- GCS support
+- OEEM datastore loading
 
 ## Install
 
-*For development of this library*
-
     git clone https://github.com/impactlab/oeem-etl
+    cd oeem-etl
     pip install -e .
 
-*For development of a new client ETL*
+## Configure
 
-- Make a new repo with the following name format: `oeem-etl-<clientname>`.
-- Add `oeem-etl` to the client ETL repo's requirements (NOTE: this doesn't actually work yet. For now, you need to install `oeem-etl` system-wide on your machine)
+Running a Luigi task requires a `.cfg` configuration file with the following section and parameters:
+
+    [oeem]
+    url=http://localhost:9009/
+    access_token=tokstr
+    project_owner=1
+    file_storage=local
+    local_data_directory=/test_data
+    uploaded_base_path=uploaded
+    formatted_base_path=oeem-format
 
 ## Run
 
-This library isn't run directly. Rather, it's components are used to build datastore-specifiec ETL pipelines, which are found in separate repos.
+This library isn't run directly. Rather, it's components are used to build datastore-specifiec ETL pipelines, which are 
+found in separate repos. 
 
-*Start luigid*
+An example of a command to run a Luigi task from a client-specific module:
 
-From somewhere that `luigi` has been installed via pip:
+    export LUIGI_CONFIG_PATH=/test_data/config.cfg
+    luigi --module oeem_etl_client LoadAll --local-scheduler
 
-    luigid
+The client module that implements the task should be installed where Luigi can find it (e.g. `pip install -e .`).
 
-*Run jobs*
+***
 
-In a separate shell, use the luigi command line tool to kick off the pipeline:
-
-    # Run fetch tasks
-    PYTHONPATH=. luigi --module fetch_client_data FetchAllCustomers --config-path config.yaml
-
-    # Run parse/upload tasks
-    PYTHONPATH=. luigi --module parse_and_upload_client_data RunPipeline --config-path config.yaml
-
-- the `--module` flag points luigi to the module where your pipeline lives.
-- `FetchAllCustomers` is the name of the final luigi task we want to execute. It must be contained in `module`.
-- `--config_path` is a luigi parameter that FetchAllCustomers needs to execute correctly. Different luigi tasks have different parameters, this is just a way of passing in a parameter from the command line.
-- the `PYTHONPATH=.` bit adds the current directory to the python path, so the luigi pipeline executes correctly. [See here](https://github.com/spotify/luigi/issues/1321) for more info.
-
-Luigi spins up, figures out which tasks in your pipeline haven't completed yet, and schedule them for execution. To see the pipeline in action, point your browser to `http://localhost:8082/`.
+**The following is historical documentation which is somewhat misleading and inaccurate as the module has evolved (it will be revised at a later date).**
 
 ## Overview
 
@@ -74,13 +70,16 @@ If we HAVE gotten data for them before, we only ask for new data since last time
 All fetch data ends up in the storage service at `<client-bucket-name>/consumption/raw/<project-id>_<usage-point-id>_<run-number>.xml`, where `<project_id>` is the customer's project_id, `<usage-point-id>` is the ESPI identifier of one of the customer's "usage points" (either their electricity or gas lines), and `<run-number>` is an integer reflecting how many times the fetch has run for this customer-usage point. For example, the very first time your run number will be 0, the second time it will be 1, and so on. We parameterize the filenames in this way so that luigi creates a new file on disk to correspond with every run of the DAG. Run numbers are used internally by the task to determine what data to ask for. Consistent filenames for these raw dataset are crucial - the ETL logic relies on it to the core.
 
 Some additional notes on fetch tasks:
+
 - if no new data is available for a customer-usagepoint since the last fetch run, no data is downloaded, and no new raw file is created in the storage service. In other words, the `run number` for that customer-usagepoint stays where it is, instead of incrementing with the new data. This functionality is crucial to fetch DAG working correctly.
 - raw datasets are all saved to a directory, usually `consumption/raw` (though this can be overwritten in the config file) at which point the parse/upload DAG takes over.
 - The two tasks are completely decoupled: the fetch task should run one a day, getting whatever new data is can for people. The parse/upload task can run more frequently, looking at the raw data dir (and knowing nothing about the fetch DAG) and parsing/uploading whatever new files appear.
 
 
 ## Tricky bits of the ETL pipeline
+
 Here's a brain dump of explanations about tricky parts of the codebase:
+
 - Run numbers in filenames must be accurate for the whole thing to work.
 - Run numbers for the current run are inferred form previously downloaded data: if there are no previous files for the current customer-usagepoint, run number is 0. If there are previous files, run number if the last run number + 1.
 - Besides computing the run number of the fetch before creating a `FetchCustomerUsage` for the given customer-usagepoint, we also need to figure out if the run should take place at all. The reason this check exists is just in case the fetch DAG is rerun before new data is available. If you have not downloaded previous raw files for the customer-usagepoint, then "should_run" is always true - go ahead and get the data. If you have, though, then call `_should_run_now`, which checks that the max-date of the data currently available on the API is greater than the max-date of the data you got on the last run. If it is, go ahead and generate a new `FetchCustomerUsage` usage task, increment the run number, fetch the data, and have the luigi fetch task save the data at filename with that run number (`<project-id>_<usage-pointid->_<run-number>.xml`). If not, then don't even generate the luigi task, so we don't risk getting duplicate data from the API - or no data at all, if the API doesn't like the min and max date params you give it - and saving it to disk under an incremented run number. Why does this matter? Because next time you run the fetch DAG, it will get the run number and the min_date for the next fetch based on the data you got last time, so you don't want this data to be invalid, or skewed on time, so that you don't get any gaps in coverage between files.
@@ -89,8 +88,3 @@ Here's a brain dump of explanations about tricky parts of the codebase:
 - `get_max_date` takes the current datetime, subtracts two days from it, and sets the time at 1 seconds before whatever the "end of day hour is". (If the day "ends" at 7:00UTC, the time is set to 6:59:59.) The idea for going back a couple days is that it increases the odds of there being new data available for that customer-usagepoint.
 - Another tricky bit of `ESPICustomer` happens in the `usage_points` method. The method returns the `ESPICustomer` instance - yes, the very instance on which you are calling the method - only with the `usage_point_id` and `usage_point_cat` attributes updated internally. Luigi then takes that return `ESPICustomer` instance, and uses it to paramterize a `FetchCustomerUsage` task. If a customer has multiple usagepoints, multiple `FetchCustomerUsage` tasks will be generated for them in the fetch DAG. If that methods returns `self`, then both of these tasks will be paramterized by the same exact CustomerUsage instance, with the same usage_point attribute. This is bad. So instead, we copy the object before returning it, to make luigi work.
 
-## How to ETL a new client
-- First, make a new repo.
-- Then, make a `config.yaml` file. This will contain credentials for your storage service, green button auth, ESPI API, and datastore. It also includes the client's name and id. The ETL library is written in such a way that most of the work in a new ETL is just making a correct configuration file - the code in the library is generic, and designed to work with a wide range of clients.
-- parse/upload: make a new module called `parse_and_upload_client_data.py` that imports the `UploadDatasets` luigi task from `oeem_etl/tasks/upload`. Write a `project_parser` and `consumption_parser`, optionally using some of the functions in `eemeter`. most of the actual coding work involves creating these parsers. You then pass them on the `UploadDatasets` DAG, along with a path to the `config.yaml` file. Run this pipeline with `PYTHONPATH=. luigi --module parse_and_upload_client_data RunPipeline --config-path config.yaml`. For an example, look at the `oeem-etl-renewfinancial` repo.
-- fetch: for the fetch DAG, start by creating a module called `fetch_client_data.py`. Then just import `from oeem_etl.tasks.fetch import FetchAllCustomers`. Run this pipeline with `PYTHONPATH=. luigi --module fetch_client_data FetchAllCustomers --config-path config.yaml`. For an example, look at the `oeem-etl-renewfinancial` repo.
