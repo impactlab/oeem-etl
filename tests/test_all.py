@@ -94,20 +94,6 @@ def test_find_reading_date_range(customer_instance):
     assert customer_instance._find_reading_date_range(readings) == output
 
 
-def test_get_previous_downloads(customer_instance):
-    customer_instance.existing_paths = ['gs://oeem-renew-financial-data/test/consumption/raw/CF-00001634_7719220489_0.xml', 'gs://oeem-renew-financial-data/test/consumption/raw/CF-00002637_6439720561_0.xml', 'gs://oeem-renew-financial-data/test/consumption/raw/CF-00003605_7992020631_0.xml', 'gs://oeem-renew-financial-data/test/consumption/raw/CF-00003879_2893720542_0.xml', 'gs://oeem-renew-financial-data/test/consumption/raw/CF-00007103_6296120289_0.xml', 'gs://oeem-renew-financial-data/test/consumption/raw/CF-00007335_7248920443_0.xml', 'gs://oeem-renew-financial-data/test/consumption/raw/CF-00017364_1065420796_0.xml', 'gs://oeem-renew-financial-data/test/consumption/raw/CF-00018429_0307420309_0.xml']
-    customer_instance.project_id = 'CF-00001634'
-    customer_instance.usage_point_id = '7719220489'
-    output = ['gs://oeem-renew-financial-data/test/consumption/raw/CF-00001634_7719220489_0.xml']
-    assert list(customer_instance._get_previous_downloads()) == output
-
-
-def test_get_last_run_num(customer_instance):
-    paths = ['gs://oeem-renew-financial-data/test/consumption/raw/CF-00001634_7719220489_10.xml', 'gs://oeem-renew-financial-data/test/consumption/raw/CF-00001634_7719220489_0.xml', 'gs://oeem-renew-financial-data/test/consumption/raw/CF-00001634_7719220489_8.xml']
-    output = 10
-    assert customer_instance._get_last_run_num(paths) == output
-
-
 def test_get_max_date(customer_instance):
     customer_instance.usage_point_cat = '0'
     output = arrow.get(2014,1,8,6,59,59,0)
@@ -117,18 +103,6 @@ def test_get_max_date(customer_instance):
     output = arrow.get(2014,1,8,7,0,0,0)
     assert customer_instance._get_max_date(current_datetime=arrow.get(2014,1,10), end_day_hour=7) == output
 
-
-def test_should_run(customer_instance):
-    '''Test should_run_now API method when you have no previous downloads.
-    The case when you do have previous downloads is harder to test
-    because it calls _should_run_now interal method, which in turn
-    depends on fetching customer data from both EPSI and the storage service.
-    Writing a test for this code path is left as an exercise for the reader.'''
-    customer_instance.project_id = 'CF-00001634'
-    customer_instance.usage_point_id = '7719220489'
-    customer_instance.existing_paths = []
-    assert customer_instance.should_run() == True and\
-        customer_instance.run_num == 0
 
 def test_mangle_path():
     with pytest.raises(ValueError):
