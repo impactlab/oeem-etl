@@ -1,6 +1,8 @@
+import datetime
 import csv
 
 def date_reader(date_format):
+    """Returns a function that reads a string into a datetime object according to the passed format"""
     def reader(raw): 
         if raw.strip() == '':
             return None
@@ -8,6 +10,7 @@ def date_reader(date_format):
     return reader
 
 def date_formatter(date_format):
+    """Returns a function that converts a datetime into a string according to the passed format"""
     def formatter(timestamp):
         if timestamp is None:
             return ''
